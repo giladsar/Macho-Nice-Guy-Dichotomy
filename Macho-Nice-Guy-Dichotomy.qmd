@@ -1,0 +1,36 @@
+---
+title: "Macho-Nice Guy Dichotomy"
+author: "Gilad Sarusi"
+format: html
+editor: visual
+---
+
+## HisWords repo
+
+For our purpose we would use the same approach that Tessa E. S. Charlesworth et al. chose. Namely,the HisWords repo which is open online in [GitHub](https://github.com/williamleif/histwords?tab=readme-ov-file).
+
+### What's going on?
+
+HistWords is an open-source dataset and toolkit that provides word embeddings for different historical periods, trained on Google Books Ngram (and other corpora). Each decade (1800–1990) has its own 300-dimensional vector space representing the meaning of words in that era.
+
+Think of it as a longitudinal semantic dataset — instead of people measured over time, we have words measured across decades. Each vector encodes a word’s position in the shared “meaning space” of its time.
+
+#### What we can do with it?
+
+Inspect meaning: find nearest neighbors of a word in any decade.
+
+Compare meanings over time: compute cosine similarity between the same word across decades to track semantic drift.
+
+Study cultural change: analyze how the associations of a word (e.g., macho, nice) evolve by decade.
+
+Compose phrases: average vectors (e.g., macho + guy) to represent multi-word concepts.
+
+Align embeddings: apply sequential Procrustes alignment to make spaces from different decades comparable.
+
+##  Code
+
+```{r}
+
+
+
+```
