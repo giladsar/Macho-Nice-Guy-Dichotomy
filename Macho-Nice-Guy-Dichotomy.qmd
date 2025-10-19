@@ -75,7 +75,7 @@ library(sweater)
 # --- 0) Paths  -------------------
 ENGall_dir <- "engall/wordvecsdata_engall.RData"  # from HistWords repo
 
-decades <- seq(1900, 1990, by = 10)          # demo range; noteworthy, in the 2000s' there was a change in the N-Gram sampling. Therefore, embedding using the corpus of 2000's forward were excluded.
+decades <- seq(1800, 1990, by = 10)          # demo range; noteworthy, in the 2000s' there was a change in the N-Gram sampling. Therefore, embedding using the corpus of 2000's forward were excluded.
 
 
 ## Words norm - for valence computation: 
@@ -275,15 +275,39 @@ ENGall_model <- wordvecs.dat
 length(ENGall_model)
 #Propoties of ENGall_model:
 
-# n of words: 200000 
+# n of words: 100000 * 20 decades.  the authors only computed embeddings for words that were among the top 100,000 most frequent words over all time (for EngAll) 
+
 # n of dimensions: 300
-# N-Gram (the model was trained on): 5 
+# type of embedding : SGNS 
+# contex window :  symmetric context window of 4 words
 
 
 
+# Check unavailable words by decade ----
+n_avwords <- vector()
+n_unav<- vector()
+prop_avail <- vector()
+n_total <- vector()
+for (i in seq_along(ENGall_model)) {
+  # Count available words as those with V1 != 0
+  n_avwords[i] <- sum(ENGall_model[[i]]$V1 != 0)
+  n_total[i] <- ENGall_model[[i]]|>
+      nrow()  
+  n_unav[i]  <- n_total[i] - n_avwords[i]
+  prop_avail[i] <- n_avwords[i] / n_total[i]
+}
 
 
-# --- 4) Main loop over decades (tidy) ------------------------
+avwords_n_decade_df <- data.frame(
+  decade      = decades,
+  n_avwords   = n_avwords,
+  n_unavwords = n_unav,
+  prop_avail  = prop_avail
+)
+
+
+
+s# --- 4) Main loop over decades (tidy) ------------------------
 results <- map_df(decades, function(d) {
   message("Processing decade: ", d)
   emb_path <- file.path(histwords_dir, paste0(d, ".txt"))
