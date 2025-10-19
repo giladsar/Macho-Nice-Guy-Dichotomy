@@ -7,7 +7,7 @@ editor: visual
 
 ## HisWords repo
 
-For our purpose we would use the same approach that Tessa E. S. Charlesworth et al. chose. Namely,the HisWords repo which is open online in [GitHub](https://github.com/williamleif/histwords?tab=readme-ov-file).
+For our purpose I would use the same approach that Tessa E. S. Charlesworth et al. chose. Namely,the HisWords repo which is open online in [GitHub](https://github.com/williamleif/histwords?tab=readme-ov-file).
 
 ### What's going on?
 
@@ -35,30 +35,103 @@ Instead of directly comparing raw cosine similarities of words across decades, I
 
 The difference between these associations is then converted into a standardized effect size, which serves as the unit of comparison across time. This method allows me to trace semantic or attitudinal change without requiring the embedding spaces to be aligned.
 
+-   **Overall-Time**- I'll identify the top 10 (and 50) word and trait associates that are most strongly, relatively associated with one type of men (and least associated with a comparison group) by:
+    -   <div>
+
+        1.  Computing the MAC of all words and traits to each individual type in each decade (e.g., the MAC of all traits to Macho-man in 1800), as well as to a comparison group (e.g., the MAC of all traits to Nice-man, in 1800).
+        2.   Calculating the difference of the MAC scores; Macho(MAC) - Nice(MAC) = the word/traits most associate with Macho and switching the components would be indicative to capture the opposite.
+        3.   Averaging these MAC differences across all 20 decades and ranking the words or traits according to their difference scores .
+
+        </div>
+-   **Across-Time -** Ihe top trait and word associates separated by each decade were examined:
+    -   <div>
+
+        1.  Decade-specific MAC difference scores and rank words and traits within each decade.
+        2.   summarize change in the top 10 (and top 50) trait and word associates over decades by counting the number of traits/ words that overlapped in successive decades (e.g., 1800 to 1810, 1810 to 1820) by computing the correlation of MAC scores across time - Higher correlations indicate greater overlap across the two comparison terms.
+        3.  Finally, I'll compute average decade-wise valence of the top trait and word associates by averaging ratings of the top words’ positivity/negativity in each of the 20 decades.
+
+        </div>
+
 Nevertheless, following Tessa et al.’s consideration, I note that applying *orthogonal Procrustes* rotation could still be useful as a robustness check or for future extensions involving cross-decade word trajectory analyses.
+
+::: callout-caution
+## The following code is written with the workflow of ds4psych: Data Science for Psychology: Natural Language (https://ds4psych.com). Therfore the toolset used in this code differs from tessa's.
+:::
 
 ## Code
 
-```{r}
-# ds4psych demo: HistWords usage for "macho guy" vs "nice guy"
-# ------------------------------------------------------------
+```{r loadPackages, echo = FALSE, message=FALSE}}
+# ----------------------------------------------------
 # Packages
 library(tidyverse)
 library(vroom)       # fast reading of large txts
 library(stringr)
 library(purrr)
-library(tidyr)
+library(sweater)
+```
 
-# --- 0) Paths (edit to your local layout) -------------------
-histwords_dir <- "vectors/english_all_sgns"  # from HistWords repo
-decades <- seq(1900, 1990, by = 10)          # demo range; extend as needed
-warriner_path <- "Warriner_VAD.csv"          # columns: word, valence, arousal, dominance
+```{r Datapaths, include=FALSE}
 
+# --- 0) Paths  -------------------
+ENGall_dir <- "engall/wordvecsdata_engall.RData"  # from HistWords repo
+
+decades <- seq(1900, 1990, by = 10)          # demo range; noteworthy, in the 2000s' there was a change in the N-Gram sampling. Therefore, embedding using the corpus of 2000's forward were excluded.
+
+
+## Words norm - for valence computation: 
+
+
+warriner_path <- "wordstim/allwrdnorms_warriner.csv"          # columns: word, valence, arousal, dominance - will be used as  valence indicates the average valence rating on a 9-point scale from 1 (very positive) to 9 (very negative), obtained from Warriner and colleagues (2013) 
+
+# We might consider an alternative: NRC VAD (S. M. Mohammad, 2018a) contains 20,007 words with ratings between 0 and 1 for valence, arousal and dominance.
+
+
+## List of traits:
+
+traits_path <- "wordstim/traitlist.txt"
+
+# We would latter on create a file storing those words for the code to be more elegant :
+
+nice_guy_words <- c(
+  "kind", "gentle", "caring", "sensitive", "considerate", "respectful",
+  "supportive", "understanding", "emotional", "warm", "affectionate",
+  "polite", "reliable", "faithful", "honest", "loyal", "thoughtful",
+  "attentive", "humble", "nice","whipped", "romantic",
+)
+macho_guy_words <- c(
+   "dominant", "assertive", "confident", "tough", "strong", "decisive",
+  "bold", "powerful", "competitive", "aggressive", "independent", "unemotional",
+  "fearless","alpha", "leader", "charismatic", "commanding", "cocky", "ambitious", "macho"
+)
+
+
+# ----- Pay attention! ----- 
+
+#in order to make sure that the words are embedding in the context of masculine  traits I'll examine two approach: The first one would be to simply inject  'male anchors'. This should help to position each words groups into a semantic field and direction of a masculinity and not those traits in general, traits that can most definite appear in a feminine context - done in the 'Concepts' chulk. 
+
+# Cons / Watch-outs-  Anchor dominance risk: male anchors can outweigh trait terms if lists are small.more overShared anchors in both groups reduce between-group centroid distance (smaller margins)
+
+#What to Monitor- Anchor share in the centroid (≤30–40%),Cosine margin between group means, Top-N stability across decades (overlap %).
+
+# The Second approach, done in the next chunk of code 'Helpers' would be Masculinity projection tweak.  I will create e an helper that would deal with this problem by creating a male–female axis and then “masculinize” any term, to nudge it to the 'male' direction before scoring. This tweak gently steers polysemous words toward the male sense without hardwiring “man” on one axis that  applies to all items. 
+# 
+# Cons / Watch-outs: Axis quality: if the gender sets are unbalanced or drift strongly by decade, the direction can be noisy, Leakage: over-weighting (large w) can wash out the original semantics.
+# 
+# What to Monitor: Axis stability across decades (cosine between decade-specific d_male - the direction of male axis ). Small w (e.g., 0.1–0.3); run sensitivity analyses. Compare results with and without the tweak.
+
+#a comparison is needed to validate the results yields from those techniques and would serve as robustness check 
+
+
+```
+
+```{r  Helpers}
 # --- 1) Small helpers ---------------------------------------
 
 # Read a single decade embedding file into a matrix with rownames = words
+
 read_embeddings <- function(path) {
   # HistWords format: first line header with counts; thereafter: word + 300 dims
+  
   raw <- vroom(path, col_names = FALSE, progress = FALSE, delim = " ")
   # Some files include the first line as counts; detect and drop if so
   if (nchar(raw$X1[1]) > 0 && !is.na(as.numeric(raw$X1[1]))) {
@@ -77,12 +150,6 @@ vec_or_na <- function(M, token) {
   if (!is.null(M) && token %in% rownames(M)) M[token, , drop = FALSE] else NA
 }
 
-# L2-normalize rows (so cosine = dot product)
-l2_normalize <- function(M) {
-  norms <- sqrt(rowSums(M^2))
-  norms[norms == 0] <- 1
-  M / norms
-}
 
 # Compose a phrase vector by averaging available tokens (skip missing)
 compose_phrase <- function(M_norm, tokens) {
@@ -93,17 +160,6 @@ compose_phrase <- function(M_norm, tokens) {
   drop(out)
 }
 
-# Concept vector = mean of multiple labels (each label can be unigram/bigram)
-concept_vec <- function(M_norm, label_list) {
-  # label tokens: split bigrams into components else use unigram
-  label_vecs <- map(label_list, function(lbl) {
-    toks <- str_split(lbl, pattern = "_|\\s+", simplify = TRUE) %>% as.character() %>% tolower()
-    compose_phrase(M_norm, toks)
-  })
-  keep <- keep(label_vecs, ~ !all(is.na(.x)))
-  if (length(keep) == 0) return(NA)
-  drop(reduce(keep, `+`) / length(keep))
-}
 
 # Cosine similarity of all vocab to a single vector (assumes M_norm rows are unit)
 cosine_to_all <- function(M_norm, v_unit) {
@@ -111,13 +167,121 @@ cosine_to_all <- function(M_norm, v_unit) {
   as.numeric(M_norm %*% v_unit)  # dot product = cosine
 }
 
-# --- 2) Define concepts (labels) -----------------------------
-labels_macho <- c("macho", "manly", "tough_guy", "he_man", "alpha_male", "rugged", "virile", "dominant")
-labels_nice  <- c("nice_guy", "gentleman", "kind", "considerate", "courteous", "caring", "agreeable", "good_natured")
 
-# --- 3) Load lexicon norms (Warriner valence) ----------------
+
+
+# Masculinity projection tweak 
+
+
+# E: numeric matrix (rows = tokens, cols = dims), 
+#   rownames(E) are tokens - We should make sure that out embedding model's architecture is built in this manner.
+#   term: single token to score (Word of intreset- character, length/)
+#   w: how strongly to nudge toward the masculine direction (panelize)  (default 0.2)
+# male_tokens / female_tokens: anchors for the axis (can leave defaults)
+
+ male_anchors <-  c("man","men","male","guy") #Question: should we add 'boy'? 
+ female_anchors <-  c("woman", "women", "female","girl")
+
+masculinity_func <- function(E, term, w = 0.2,
+                              male_tokens   = male_anchors,
+                              female_tokens = female_anchors) {
+  
+  #Check if the word of interest doesn't exist in the embedding
+  stopifnot(is.matrix(E), !is.null(rownames(E)), length(term) == 1)
+  term <- tolower(term)
+  avail <- rownames(E)
+
+  if (!term %in% avail) stop(sprintf("Term '%s' not found in embeddings.", term))
+
+  # Getting the embedding of our anchors in the embedding model 
+  
+  m <- intersect(tolower(male_tokens),   avail)
+  f <- intersect(tolower(female_tokens), avail)
+  if (length(m) == 0 || length(f) == 0) stop("Insufficient anchors to build gender axis.")
+
+  # Build male-female axis (unit vector)
+  male_mu   <- colMeans(E[m, , drop = FALSE])
+  female_mu <- colMeans(E[f, , drop = FALSE])
+  axis <- male_mu - female_mu
+  axis <- axis / sqrt(sum(axis * axis))
+
+  # Get term vector- normalize for safety
+  v <- E[term, , drop = FALSE]
+  v <- v / sqrt(rowSums(v * v))
+
+  # Nudge toward masculine axis and renormalize
+  v_post_nudge <- v + w * matrix(axis, nrow = 1)
+  v_post_nudge <- v_post_nudge / sqrt(
+    rowSums(
+      v_post_nudge * v_post_nudge
+      )
+    )
+
+  # Masculinity score = cosine with axis (dot product since both unit-length)
+  as.numeric(v_post_nudge %*% axis)
+}
+
+
+
+```
+
+```{r Concepts, include=FALSE}
+# --- 2) Defining concepts (labels) -----------------------------
+
+ male_anchors <-  c("man","men","male","guy","boy")
+nice_guy_words_injected <- nice_guy_words |>
+  c(male_anchors)
+
+macho_guy_words_injected <- macho_guy_words |>
+    c(male_anchors)
+
+```
+
+```{r loadData1, include=FALSE}
+# --- 3) Loading Data  ----------------
+
+
+## -------------  Warriner's valence-----------
+
+#(I'm keeping Arousal and Dominance since it might be useful later)
+
 warriner <- read_csv(warriner_path, show_col_types = FALSE) |>
-  transmute(word = tolower(word), valence = valence)
+  transmute(word=tolower(Word),
+         #Valence
+         valence=V.Mean.Sum,
+         # Arousal
+         arousal=A.Mean.Sum,
+         # Dominance
+         dominance = D.Mean.Sum) 
+
+## ------------ Lists of traits --------------
+
+
+trait_list<- read.delim(traits_path, header = FALSE) |>
+  # the traits are stored in a column named V1 and I want to use it as a vector 
+  pull(V1) 
+
+
+  # I would fetch only the traits that got crowdslebelling in warriner: 
+traits_warriner <- warriner |>
+  filter(word %in% trait_list) 
+  
+
+## ----------- ENGall model -----------
+
+ load(ENGall_dir)
+#the load(ENGall_dir) creates an 'wordvecs.dat' object of which I want to store in more intuituve object name 
+ENGall_model <- wordvecs.dat
+length(ENGall_model)
+#Propoties of ENGall_model:
+
+# n of words: 200000 
+# n of dimensions: 300
+# N-Gram (the model was trained on): 5 
+
+
+
+
 
 # --- 4) Main loop over decades (tidy) ------------------------
 results <- map_df(decades, function(d) {
