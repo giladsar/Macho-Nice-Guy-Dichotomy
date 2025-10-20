@@ -150,28 +150,6 @@ read_embeddings <- function(path) {
   M
 }
 
-# Safe row grab (returns NA if word missing)
-vec_or_na <- function(M, token) {
-  if (!is.null(M) && token %in% rownames(M)) M[token, , drop = FALSE] else NA
-}
-
-
-# Compose a phrase vector by averaging available tokens (skip missing)
-compose_phrase <- function(M_norm, tokens) {
-  mats <- map(tokens, ~ vec_or_na(M_norm, .x))
-  keep <- keep(mats, ~ !all(is.na(.x)))
-  if (length(keep) == 0) return(NA)
-  out <- reduce(keep, `+`) / length(keep)
-  drop(out)
-}
-
-
-# Cosine similarity of all vocab to a single vector (assumes M_norm rows are unit)
-cosine_to_all <- function(M_norm, v_unit) {
-  if (any(is.na(v_unit))) return(rep(NA_real_, nrow(M_norm)))
-  as.numeric(M_norm %*% v_unit)  # dot product = cosine
-}
-
 
 
 
@@ -180,52 +158,76 @@ cosine_to_all <- function(M_norm, v_unit) {
 
 # E: numeric matrix (rows = tokens, cols = dims), 
 #   rownames(E) are tokens - We should make sure that out embedding model's architecture is built in this manner.
-#   term: single token to score (Word of intreset- character, length/)
-#   w: how strongly to nudge toward the masculine direction (panelize)  (default 0.2)
 # male_tokens / female_tokens: anchors for the axis (can leave defaults)
 
- male_anchors <-  c("man","men","male","guy") #Question: should we add 'boy'? 
+ male_anchors <-  c("man","men","male","guy")  #Question: should we add 'boy'? 
  female_anchors <-  c("woman", "women", "female","girl")
 
-masculinity_func <- function(E, term, w = 0.2,
-                              male_tokens   = male_anchors,
-                              female_tokens = female_anchors) {
-  
-  #Check if the word of interest doesn't exist in the embedding
-  stopifnot(is.matrix(E), !is.null(rownames(E)), length(term) == 1)
-  term <- tolower(term)
+ 
+ build_male_female_axis <- function(E, male_tokens, female_tokens) {
   avail <- rownames(E)
-
-  if (!term %in% avail) stop(sprintf("Term '%s' not found in embeddings.", term))
-
-  # Getting the embedding of our anchors in the embedding model 
-  
   m <- intersect(tolower(male_tokens),   avail)
   f <- intersect(tolower(female_tokens), avail)
-  if (length(m) == 0 || length(f) == 0) stop("Insufficient anchors to build gender axis.")
-
-  # Build male-female axis (unit vector)
+  if (length(m) == 0 || length(f) == 0)
+    stop("Insufficient anchors to build gender axis.")
+  
   male_mu   <- colMeans(E[m, , drop = FALSE])
   female_mu <- colMeans(E[f, , drop = FALSE])
   axis <- male_mu - female_mu
-  axis <- axis / sqrt(sum(axis * axis))
+  axis / sqrt(sum(axis * axis)) # we want the gender axis to represent direction only, not magnitude. this normalization step is meant to make the axis to be of a unit length
+ }
 
-  # Get term vector- normalize for safety
-  v <- E[term, , drop = FALSE]
-  v <- v / sqrt(rowSums(v * v))
+# DDR-based masculinity function:
 
-  # Nudge toward masculine axis and renormalize
-  v_post_nudge <- v + w * matrix(axis, nrow = 1)
-  v_post_nudge <- v_post_nudge / sqrt(
-    rowSums(
-      v_post_nudge * v_post_nudge
-      )
-    )
-
-  # Masculinity score = cosine with axis (dot product since both unit-length)
-  as.numeric(v_post_nudge %*% axis)
+# w = nudge strength (0 = no nudge, >0 = push toward masculine direction)
+ 
+# default is set to 1 to inteperate results easily and to make sure that the wors be are assigning is regards to word_GUY not that word in general
+ 
+ 
+masculinity_nudge <- function(ddr_vec, # Or any dim1:dim300 embedding object
+                              E, # The embedding space 
+                              male_tokens = male_anchors,
+                              female_tokens = female_anchors,
+                              w = 1) {
+  
+  # ensure DDR is a numeric vector
+  if (is.matrix(ddr_vec)) ddr_vec <- as.numeric(ddr_vec)
+  
+  axis <- build_male_female_axis(E, male_tokens, female_tokens)
+  ddr_vec <- ddr_vec / sqrt(sum(ddr_vec * ddr_vec))
+  
+  # apply nudge: shift toward masculine axis 
+  ddr_vec_nudged <- ddr_vec + w * axis
+  
+  #re normalize  - Consult Almog if necessary 
+  ddr_vec_nudged <- ddr_vec_nudged / sqrt(sum(ddr_vec_nudged * ddr_vec_nudged))
+  
+  ddr_vec_nudged
 }
 
+
+# From df to embedding Object function- to fit 'embedplyr' workflow:
+
+to_embeddings <- function(df){
+  # keep available rows, ensure rownames are tokens
+  stopifnot(is.data.frame(df), !is.null(rownames(df)))
+  
+  # Keep only available words - 
+  keep <- df$V1 != 0
+  
+  M <- as.matrix(df[keep, , drop = FALSE])
+  # give it the right class so embedplyr methods (predict/emb/find_nearest) work
+  class(M) <- c("embeddings", class(M))
+  attr(M, "normalized") <- FALSE  # optional meta; not required
+  
+  # crucial: token_index environment (token -> row index) - since the words are stored as rownames
+  idx_env <- new.env(parent = emptyenv())
+  toks <- rownames(M)
+  for (j in seq_along(toks)) assign(toks[j], j, envir = idx_env)
+  attr(M, "token_index") <- idx_env
+
+  M
+}
 
 
 ```
@@ -396,28 +398,7 @@ length(macho_guy_words_injected)
 
 # ---- setting the ENGall model to fit 'embedplyr' workflow
 
-# current the Engall[[i]] is of type df while predict() function expects an embedding object
-
-to_embeddings <- function(df){
-  # keep available rows, ensure rownames are tokens
-  stopifnot(is.data.frame(df), !is.null(rownames(df)))
-  
-  # Keep only available words - 
-  keep <- df$V1 != 0
-  
-  M <- as.matrix(df[keep, , drop = FALSE])
-  # give it the right class so embedplyr methods (predict/emb/find_nearest) work
-  class(M) <- c("embeddings", class(M))
-  attr(M, "normalized") <- FALSE  # optional meta; not required
-  
-  # crucial: token_index environment (token -> row index) - since the words are stored as rownames
-  idx_env <- new.env(parent = emptyenv())
-  toks <- rownames(M)
-  for (j in seq_along(toks)) assign(toks[j], j, envir = idx_env)
-  attr(M, "token_index") <- idx_env
-
-  M
-}
+# current the Engall[[i]] is of type df while predict() function expects an embedding object that way we would use the to_embedding() helper:
 
 
 
@@ -452,8 +433,6 @@ Nice_DDR_injected_by_decade <- list()
 for (i in seq_along(ENGall_model)) {
   
   Nice_DDR_injected_by_decade[[i]] <- predict(to_embeddings(ENGall_model[[i]]), nice_guy_words_injected)|> 
-
-  
   average_embedding()
 }
 
@@ -461,6 +440,36 @@ for (i in seq_along(ENGall_model)) {
 # Make it more readable: 
 
 names(Nice_DDR_injected_by_decade) <- decades
+
+
+#----------- The 'Nudge Appraoch' -------------
+
+
+## ----------- Macho DDR (without injection) ---------- 
+
+
+# Follow the same process as before
+Macho_DDR_by_decade <- list()
+
+for (i in seq_along(ENGall_model)) {
+
+  Macho_DDR_by_decade[[i]] <- predict(to_embeddings(ENGall_model[[i]]), macho_guy_words)|>
+  average_embedding() |>
+    
+    # Same as before but now I'll apply the nudge toward the masculine direction
+    
+    masculinity_nudge(E = ENGall_model[[i]])
+}
+
+
+# Make it more readable:
+
+names(Macho_DDR_by_decade) <- decades
+
+# 
+
+
+
 
 ```
 
