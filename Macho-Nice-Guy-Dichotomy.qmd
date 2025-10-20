@@ -297,6 +297,9 @@ n_avwords <- vector()
 n_unav<- vector()
 prop_avail <- vector()
 n_total <- vector()
+
+# Creating a list of available word and unavailable words: 
+
 for (i in seq_along(ENGall_model)) {
   # Count available words as those with V1 != 0
   n_avwords[i] <- sum(ENGall_model[[i]]$V1 != 0)
@@ -489,75 +492,8 @@ names(Nice_DDR_nudge_by_decade) <- decades
 
 # Next, I would Computed the MAC of the Macho and Nice guy contracts (DDR)
 
+# the approach i would follow would be the same approach as written in Tessa's code in the code chulk name:  writeFunction
+
+
+
 ```
-
-s# --- 4) Main loop over decades (tidy) ------------------------
-
-results \<- map_df(decades, function(d) { message("Processing decade: ", d) emb_path \<- file.path(histwords_dir, paste0(d, ".txt")) if (!file.exists(emb_path)) return(tibble())
-
-M \<- read_embeddings(emb_path) M_norm \<- l2_normalize(M)
-
-v_macho \<- concept_vec(M_norm, labels_macho) v_nice \<- concept_vec(M_norm, labels_nice)
-
-if (any(is.na(v_macho)) \|\| any(is.na(v_nice))) { return(tibble()) \# skip if no concept representation available }
-
-\# cosine to all words cos_macho \<- cosine_to_all(M_norm, v_macho) cos_nice \<- cosine_to_all(M_norm, v_nice)
-
-tibble( decade = d, word = rownames(M_norm), cos_macho = cos_macho, cos_nice = cos_nice, rel_mac = cos_macho - cos_nice \# ds4psych: relative association ) })
-
-# --- 5) Nearest neighbors & valence time-series --------------
-
-k \<- 10 \# top-k neighbors per concept per decade
-
-# Top-k by concept
-
-topk_long \<- bind_rows( results \|\> group_by(decade) \|\> slice_max(order_by = cos_macho, n = k) \|\> mutate(concept = "macho", rank = row_number(), score = cos_macho) \|\> select(decade, concept, word, rank, score),
-
-results \|\> group_by(decade) \|\> slice_max(order_by = cos_nice, n = k) \|\> mutate(concept = "nice", rank = row_number(), score = cos_nice) \|\> select(decade, concept, word, rank, score) ) \|\> ungroup()
-
-# Join valence and summarize per decade
-
-valence_ts \<- topk_long \|\> left_join(warriner, by = "word") \|\> group_by(decade, concept) \|\> summarize( k = n(), mean_valence = mean(valence, na.rm = TRUE), prop_valence_available = mean(!is.na(valence)), .groups = "drop" ) \|\> mutate(concept = factor(concept, levels = c("macho","nice")))
-
-# --- 6) Visualize (quick ggplot) -----------------------------
-
-ggplot(valence_ts, aes(decade, mean_valence, group = concept)) + geom_line() + geom_point() + facet_wrap(\~ concept, ncol = 1, scales = "free_y") + labs(title = "Valence of top-k neighbors over time", subtitle = paste0("k = ", k, " (Warriner valence)"), x = "Decade", y = "Mean valence of neighbors")
-
-# --- 7) Optional diagnostics: content churn ------------------
-
-# % overlap of top-k neighbors between adjacent decades, by concept
-
-churn \<- topk_long \|\> arrange(concept, decade, rank) \|\> group_by(concept) \|\> group_split()
-
-overlap_df \<- map_df(churn, function(dfc) { split_by_decade \<- dfc \|\> group_by(decade) \|\> summarize(words = list(word), .groups = "drop")
-
-if (nrow(split_by_decade) \< 2) return(tibble()) tibble( concept = unique(dfc$concept),
-    decade_from = head(split_by_decade$decade, -1), decade_to = tail(split_by_decade$decade, -1),
-    jaccard     = map2_dbl(
-      head(split_by_decade$words, -1), tail(split_by_decade\$words, -1), \~ { inter \<- length(intersect(.x, .y)); union \<- length(union(.x, .y)); inter/union } ) ) })
-
-print(overlap_df)
-
-# --- 8) How to query nearest neighbors interactively ---------
-
-# Example: neighbors of "macho" and "nice" in 1950
-
-query_neighbors \<- function(decade, query_word, top = 15) { emb_path \<- file.path(histwords_dir, paste0(decade, ".txt")) stopifnot(file.exists(emb_path)) M \<- read_embeddings(emb_path) M_norm \<- l2_normalize(M) if (!query_word %in% rownames(M_norm)) return(tibble()) sims \<- as.numeric(M_norm %\*% M_norm\[query_word, \]) tibble(word = rownames(M_norm), cosine = sims) \|\> arrange(desc(cosine)) \|\> slice_head(n = top + 1) \|\> filter(word != query_word) }
-
-query_neighbors(1950, "macho", top = 15) \|\> print(n = 16) query_neighbors(1950, "nice", top = 15) \|\> print(n = 16)
-
-# M_norm: L2-normalized embedding matrix with rownames = vocab
-
-phrase_vec \<- function(M_norm, phrase_tokens) { mats \<- lapply(phrase_tokens, function(tk) if (tk %in% rownames(M_norm)) M_norm\[tk, , drop=FALSE\] else NULL) mats \<- Filter(Negate(is.null), mats) if (length(mats) == 0) return(NA) v \<- Reduce(`+`, mats) / length(mats) \# renormalize v / sqrt(sum(v\^2)) }
-
-# prefer single-token if it exists; else compose
-
-get_concept_vec \<- function(M_norm, candidates, fallback_tokens) { tok \<- candidates\[candidates %in% rownames(M_norm)\]\[1\] if (!is.na(tok)) { v \<- M_norm\[tok, \] return(v / sqrt(sum(v\^2))) } else { return(phrase_vec(M_norm, fallback_tokens)) } }
-
-# examples:
-
-v_macho_guy \<- get_concept_vec(M_norm, candidates = c("macho_guy","tough_guy"), \# try phrase tokens if present fallback_tokens = c("macho","guy")) \# else compose
-
-v_nice_guy \<- get_concept_vec(M_norm, candidates = c("nice_guy","gentleman"), \# single-token if present fallback_tokens = c("nice","guy"))
-
-\`\`\`
