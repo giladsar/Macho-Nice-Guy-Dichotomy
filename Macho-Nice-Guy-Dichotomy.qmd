@@ -68,6 +68,11 @@ library(vroom)       # fast reading of large txts
 library(stringr)
 library(purrr)
 library(sweater)
+library(quanteda.textmodels)
+library(quanteda)
+library(text)
+library(embedplyr)
+
 ```
 
 ```{r Datapaths, include=FALSE}
@@ -96,7 +101,7 @@ nice_guy_words <- c(
   "kind", "gentle", "caring", "sensitive", "considerate", "respectful",
   "supportive", "understanding", "emotional", "warm", "affectionate",
   "polite", "reliable", "faithful", "honest", "loyal", "thoughtful",
-  "attentive", "humble", "nice","whipped", "romantic",
+  "attentive", "humble", "nice","whipped", "romantic"
 )
 macho_guy_words <- c(
    "dominant", "assertive", "confident", "tough", "strong", "decisive",
@@ -229,6 +234,8 @@ masculinity_func <- function(E, term, w = 0.2,
 # --- 2) Defining concepts (labels) -----------------------------
 
  male_anchors <-  c("man","men","male","guy","boy")
+
+# "Inject them inside the Macho/Nice directionary 
 nice_guy_words_injected <- nice_guy_words |>
   c(male_anchors)
 
@@ -283,7 +290,7 @@ length(ENGall_model)
 
 
 
-# Check unavailable words by decade ----
+#### ---- Check unavailable words by decade ----
 n_avwords <- vector()
 n_unav<- vector()
 prop_avail <- vector()
@@ -305,13 +312,170 @@ avwords_n_decade_df <- data.frame(
   prop_avail  = prop_avail
 )
 
+
 #  1. outof 10,000 on average we have in each decade 36,347 available words.
-#  2. the top 100,000 most requent words of all time, 1- 0.71 = 29% of them were
-#     coined after 1990 - given that the available words by decade 1990 was 71%. 
+#  2. notworthy is that the last slice 1990 have 71% available words, It doesn’t mean “29% are post-1990 neologisms.” It means 29% of the top-100k (over 1800–1999) simply don’t have enough occurrences in the 1990s slice to train vectors—often because they’re earlier-era words that faded out, or because they’re rare/orthographically different in that decade.
 
 #   Noteworthy, I believe that latter on we would fetch the words' valence from
 #   warriner's list of 14,000 words, so we would be bound to 14,000 in our word 
 #   embedding. given that not all the words in warriner's might not appear in the #   model's coprus we might be left with even smaller number of words. 
+
+
+### ---- Check if macho/nice words by decade ------- 
+# 1) Availability (token x decade)
+
+avail <- map2_df(ENGall_model, decades, ~
+  tibble(
+    decade    = .y,
+    token     = tolower(rownames(.x)),
+    available = .x$V1 != 0
+  )
+)
+
+#  Define the sets you care about
+sets <- list(
+  macho = macho_guy_words,
+  nice  = nice_guy_words,
+  male = male_anchors
+)
+
+wanted <- enframe(sets, name = "set", value = "token") |>
+  unnest(token) |>
+  mutate(token = tolower(token))
+
+# proportion per decade + list of missing words 
+macho_nice_words_by_decade_df <- wanted |>
+  left_join(avail, by = "token") |>
+  mutate(available = tidyr::replace_na(available, FALSE)) |>
+  group_by(set, decade) |>
+  summarise(
+    n_of_words_examined = n(),
+    n_available = sum(available),
+    prop_avail    = n_available / n_of_words_examined,
+    missing     = list(token[!available]),
+    .groups = "drop"
+  ) |>
+  arrange(set, decade)
+
+
+#Summery, it seems that the words "cocky" and "macho" doesnt' appear at all in the corpus of ENGAll therefore I'll omit them to avoid adding noise: 
+
+## consult with Almog regarding the fact that the list of words betwenn nice and macho words list aren't equal length(nice) =22 and length(macho) = 18 (after omition)
+
+length(macho_guy_words)
+#[1] 20
+
+length(macho_guy_words_injected)
+
+#[1] 25
+
+length(male_anchors)
+# [1] 5
+
+macho_guy_words <- setdiff(macho_guy_words,c("cocky", "macho"))
+macho_guy_words_injected <- setdiff(macho_guy_words_injected,c("cocky", "macho"))
+
+# Sanity check
+length(macho_guy_words)
+# [1] 18
+
+length(macho_guy_words_injected)
+
+# [1] 23
+
+# OK I'm sane
+    
+    
+```
+
+```{r DDR }
+
+# Now I will create the Macho and Nice guy contracts (DDR). 
+# in Addition I'll create DDR for valence - namely, a DDR of 'Good' dictionary
+
+
+# ---- setting the ENGall model to fit 'embedplyr' workflow
+
+# current the Engall[[i]] is of type df while predict() function expects an embedding object
+
+to_embeddings <- function(df){
+  # keep available rows, ensure rownames are tokens
+  stopifnot(is.data.frame(df), !is.null(rownames(df)))
+  
+  # Keep only available words - 
+  keep <- df$V1 != 0
+  
+  M <- as.matrix(df[keep, , drop = FALSE])
+  # give it the right class so embedplyr methods (predict/emb/find_nearest) work
+  class(M) <- c("embeddings", class(M))
+  attr(M, "normalized") <- FALSE  # optional meta; not required
+  
+  # crucial: token_index environment (token -> row index) - since the words are stored as rownames
+  idx_env <- new.env(parent = emptyenv())
+  toks <- rownames(M)
+  for (j in seq_along(toks)) assign(toks[j], j, envir = idx_env)
+  attr(M, "token_index") <- idx_env
+
+  M
+}
+
+
+
+
+## ----------- Macho DDR (with injection) ---------- 
+
+Macho_DDR_injected_by_decade <- list()
+
+for (i in seq_along(ENGall_model)) {
+  
+  # Getting the prediction of embedding DDR of the Macho_guy words (with injection) while converting the ENGall model to ebedding object:
+  
+  Macho_DDR_injected_by_decade[[i]] <- predict(to_embeddings(ENGall_model[[i]]), macho_guy_words_injected)|> 
+    
+    #I'll average the embedding inside the loop since each DDR embedding is computed  on it's on corpus/decade-  noteworthy the averages is done by Google Trillion Word corpus which meant to weight words base on their frequency. 
+    
+    
+    # Consult with Almog - should the weighting be done by our model of choice (ENGall) setting anchor="good"?
+  average_embedding()
+}
+
+ 
+# Make it more readable: 
+
+names(Macho_DDR_injected_by_decade) <- decades
+
+## ----------- Nice DDR (with injection) ---------- 
+
+# Follow the same process as before
+Nice_DDR_injected_by_decade <- list()
+
+for (i in seq_along(ENGall_model)) {
+  
+  Nice_DDR_injected_by_decade[[i]] <- predict(to_embeddings(ENGall_model[[i]]), nice_guy_words_injected)|> 
+
+  
+  average_embedding()
+}
+
+ 
+# Make it more readable: 
+
+names(Nice_DDR_injected_by_decade) <- decades
+
+```
+
+```{r Camputing MAC}
+
+# Next, I would Computed the MAC of the Macho and Nice guy contracts (DDR)
+
+```
+    
+
+
+
+
+
+
 
 
 
@@ -320,6 +484,8 @@ avwords_n_decade_df <- data.frame(
 
 
 s# --- 4) Main loop over decades (tidy) ------------------------
+
+
 results <- map_df(decades, function(d) {
   message("Processing decade: ", d)
   emb_path <- file.path(histwords_dir, paste0(d, ".txt"))
@@ -350,6 +516,13 @@ results <- map_df(decades, function(d) {
 
 # --- 5) Nearest neighbors & valence time-series --------------
 k <- 10  # top-k neighbors per concept per decade
+
+
+
+
+
+
+
 
 # Top-k by concept
 topk_long <- bind_rows(
