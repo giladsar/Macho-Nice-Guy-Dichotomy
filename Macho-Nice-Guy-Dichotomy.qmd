@@ -7,7 +7,7 @@ editor: visual
 
 ## HisWords repo
 
-For our purpose we would use the same approach that Tessa E. S. Charlesworth et al. chose. Namely,the HisWords repo which is open online in [GitHub](https://github.com/williamleif/histwords?tab=readme-ov-file).
+For our purpose I would use the same approach that Tessa E. S. Charlesworth et al. chose. Namely,the HisWords repo which is open online in [GitHub](https://github.com/williamleif/histwords?tab=readme-ov-file).
 
 ### What's going on?
 
@@ -15,7 +15,7 @@ HistWords is an open-source dataset and toolkit that provides word embeddings fo
 
 Think of it as a longitudinal semantic dataset — instead of people measured over time, we have words measured across decades. Each vector encodes a word’s position in the shared “meaning space” of its time.
 
-#### What we can do with it?
+#### What We Can Do with It?
 
 Inspect meaning: find nearest neighbors of a word in any decade.
 
@@ -27,10 +27,610 @@ Compose phrases: average vectors (e.g., macho + guy) to represent multi-word con
 
 Align embeddings: apply sequential Procrustes alignment to make spaces from different decades comparable.
 
-##  Code
+### What are We Comparng?
 
-```{r}
+In this project, I'll adopt an approach similar to that of Tessa and colleagues, designed to avoid the ***Alignment Problem*** inherent in diachronic word embeddings - which makes comparison of raw cosine similaritie between two embedding spaces (e.g 1910's and 1920's) invalid.
 
+Instead of directly comparing raw cosine similarities of words across decades, I'll examine within-decade associations—for example, comparing how strongly macho and nice are each associated with good in a given decade.
+
+The difference between these associations is then converted into a standardized effect size, which serves as the unit of comparison across time. This method allows me to trace semantic or attitudinal change without requiring the embedding spaces to be aligned.
+
+-   **Overall-Time**- I'll identify the top 10 (and 50) word and trait associates that are most strongly, relatively associated with one type of men (and least associated with a comparison group) by:
+    -   <div>
+
+        1.  Computing the MAC of all words and traits to each individual type in each decade (e.g., the MAC of all traits to Macho-man in 1800), as well as to a comparison group (e.g., the MAC of all traits to Nice-man, in 1800).
+        2.   Calculating the difference of the MAC scores; Macho(MAC) - Nice(MAC) = the word/traits most associate with Macho and switching the components would be indicative to capture the opposite.
+        3.   Averaging these MAC differences across all 20 decades and ranking the words or traits according to their difference scores .
+
+        </div>
+-   **Across-Time -** Ihe top trait and word associates separated by each decade were examined:
+    -   <div>
+
+        1.  Decade-specific MAC difference scores and rank words and traits within each decade.
+        2.   summarize change in the top 10 (and top 50) trait and word associates over decades by counting the number of traits/ words that overlapped in successive decades (e.g., 1800 to 1810, 1810 to 1820) by computing the correlation of MAC scores across time - Higher correlations indicate greater overlap across the two comparison terms.
+        3.  Finally, I'll compute average decade-wise valence of the top trait and word associates by averaging ratings of the top words’ positivity/negativity in each of the 20 decades.
+
+        </div>
+
+Nevertheless, following Tessa et al.’s consideration, I note that applying *orthogonal Procrustes* rotation could still be useful as a robustness check or for future extensions involving cross-decade word trajectory analyses.
+
+::: callout-caution
+## The following code is written with the workflow of ds4psych: Data Science for Psychology: Natural Language (https://ds4psych.com). Therfore the toolset used in this code differs from tessa's.
+:::
+
+## Code
+
+```{r loadPackages, echo = FALSE, message=FALSE}}
+# ----------------------------------------------------
+# Packages
+library(tidyverse)
+library(vroom)       # fast reading of large txts
+library(stringr)
+library(purrr)
+library(sweater)
+library(quanteda.textmodels)
+library(quanteda)
+library(text)
+library(embedplyr)
+
+```
+
+```{r Datapaths, include=FALSE}
+
+# --- 0) Paths  -------------------
+ENGall_dir <- "engall/wordvecsdata_engall.RData"  # from HistWords repo
+
+decades <- seq(1800, 1990, by = 10)          # demo range; noteworthy, in the 2000s' there was a change in the N-Gram sampling. Therefore, embedding using the corpus of 2000's forward were excluded.
+
+
+## Words norm - for valence computation: 
+
+
+warriner_path <- "wordstim/allwrdnorms_warriner.csv"          # columns: word, valence, arousal, dominance - will be used as  valence indicates the average valence rating on a 9-point scale from 1 (very positive) to 9 (very negative), obtained from Warriner and colleagues (2013) 
+
+# We might consider an alternative: NRC VAD (S. M. Mohammad, 2018a) contains 20,007 words with ratings between 0 and 1 for valence, arousal and dominance.
+
+
+## List of traits:
+
+traits_path <- "wordstim/traitlist.txt"
+
+# We would latter on create a file storing those words for the code to be more elegant :
+
+nice_guy_words <- c(
+  "kind", "gentle", "caring", "sensitive", "considerate", "respectful",
+  "supportive", "understanding", "emotional", "warm", "affectionate",
+  "polite", "reliable", "faithful", "honest", "loyal", "thoughtful",
+  "attentive", "humble", "nice","whipped", "romantic"
+)
+macho_guy_words <- c(
+   "dominant", "assertive", "confident", "tough", "strong", "decisive",
+  "bold", "powerful", "competitive", "aggressive", "independent", "unemotional",
+  "fearless","alpha", "leader", "charismatic", "commanding", "cocky", "ambitious", "macho"
+)
+
+
+# ----- Pay attention! ----- 
+
+#in order to make sure that the words are embedding in the context of masculine  traits I'll examine two approach: The first one would be to simply inject  'male anchors'. This should help to position each words groups into a semantic field and direction of a masculinity and not those traits in general, traits that can most definite appear in a feminine context - done in the 'Concepts' chulk. 
+
+# Cons / Watch-outs-  Anchor dominance risk: male anchors can outweigh trait terms if lists are small.more overShared anchors in both groups reduce between-group centroid distance (smaller margins)
+
+#What to Monitor- Anchor share in the centroid (≤30–40%),Cosine margin between group means, Top-N stability across decades (overlap %).
+
+# The Second approach, done in the next chunk of code 'Helpers' would be Masculinity projection tweak.  I will create e an helper that would deal with this problem by creating a male–female axis and then “masculinize” any term, to nudge it to the 'male' direction before scoring. This tweak gently steers polysemous words toward the male sense without hardwiring “man” on one axis that  applies to all items. 
+# 
+# Cons / Watch-outs: Axis quality: if the gender sets are unbalanced or drift strongly by decade, the direction can be noisy, Leakage: over-weighting (large w) can wash out the original semantics.
+# 
+# What to Monitor: Axis stability across decades (cosine between decade-specific d_male - the direction of male axis ). Small w (e.g., 0.1–0.3); run sensitivity analyses. Compare results with and without the tweak.
+
+#a comparison is needed to validate the results yields from those techniques and would serve as robustness check 
+
+
+```
+
+```{r  Helpers}
+# --- 1) Small helpers ---------------------------------------
+
+# Read a single decade embedding file into a matrix with rownames = words
+
+read_embeddings <- function(path) {
+  # HistWords format: first line header with counts; thereafter: word + 300 dims
+  
+  raw <- vroom(path, col_names = FALSE, progress = FALSE, delim = " ")
+  # Some files include the first line as counts; detect and drop if so
+  if (nchar(raw$X1[1]) > 0 && !is.na(as.numeric(raw$X1[1]))) {
+    # first line looks numeric -> drop it
+    raw <- raw[-1, ]
+  }
+  words <- raw$X1
+  M <- as.matrix(raw[,-1])
+  rownames(M) <- words
+  storage.mode(M) <- "double"
+  M
+}
+
+# Safe row grab (returns NA if word missing)
+vec_or_na <- function(M, token) {
+  if (!is.null(M) && token %in% rownames(M)) M[token, , drop = FALSE] else NA
+}
+
+
+# Compose a phrase vector by averaging available tokens (skip missing)
+compose_phrase <- function(M_norm, tokens) {
+  mats <- map(tokens, ~ vec_or_na(M_norm, .x))
+  keep <- keep(mats, ~ !all(is.na(.x)))
+  if (length(keep) == 0) return(NA)
+  out <- reduce(keep, `+`) / length(keep)
+  drop(out)
+}
+
+
+# Cosine similarity of all vocab to a single vector (assumes M_norm rows are unit)
+cosine_to_all <- function(M_norm, v_unit) {
+  if (any(is.na(v_unit))) return(rep(NA_real_, nrow(M_norm)))
+  as.numeric(M_norm %*% v_unit)  # dot product = cosine
+}
+
+
+
+
+# Masculinity projection tweak 
+
+
+# E: numeric matrix (rows = tokens, cols = dims), 
+#   rownames(E) are tokens - We should make sure that out embedding model's architecture is built in this manner.
+#   term: single token to score (Word of intreset- character, length/)
+#   w: how strongly to nudge toward the masculine direction (panelize)  (default 0.2)
+# male_tokens / female_tokens: anchors for the axis (can leave defaults)
+
+ male_anchors <-  c("man","men","male","guy") #Question: should we add 'boy'? 
+ female_anchors <-  c("woman", "women", "female","girl")
+
+masculinity_func <- function(E, term, w = 0.2,
+                              male_tokens   = male_anchors,
+                              female_tokens = female_anchors) {
+  
+  #Check if the word of interest doesn't exist in the embedding
+  stopifnot(is.matrix(E), !is.null(rownames(E)), length(term) == 1)
+  term <- tolower(term)
+  avail <- rownames(E)
+
+  if (!term %in% avail) stop(sprintf("Term '%s' not found in embeddings.", term))
+
+  # Getting the embedding of our anchors in the embedding model 
+  
+  m <- intersect(tolower(male_tokens),   avail)
+  f <- intersect(tolower(female_tokens), avail)
+  if (length(m) == 0 || length(f) == 0) stop("Insufficient anchors to build gender axis.")
+
+  # Build male-female axis (unit vector)
+  male_mu   <- colMeans(E[m, , drop = FALSE])
+  female_mu <- colMeans(E[f, , drop = FALSE])
+  axis <- male_mu - female_mu
+  axis <- axis / sqrt(sum(axis * axis))
+
+  # Get term vector- normalize for safety
+  v <- E[term, , drop = FALSE]
+  v <- v / sqrt(rowSums(v * v))
+
+  # Nudge toward masculine axis and renormalize
+  v_post_nudge <- v + w * matrix(axis, nrow = 1)
+  v_post_nudge <- v_post_nudge / sqrt(
+    rowSums(
+      v_post_nudge * v_post_nudge
+      )
+    )
+
+  # Masculinity score = cosine with axis (dot product since both unit-length)
+  as.numeric(v_post_nudge %*% axis)
+}
+
+
+
+```
+
+```{r Concepts, include=FALSE}
+# --- 2) Defining concepts (labels) -----------------------------
+
+ male_anchors <-  c("man","men","male","guy","boy")
+
+# "Inject them inside the Macho/Nice directionary 
+nice_guy_words_injected <- nice_guy_words |>
+  c(male_anchors)
+
+macho_guy_words_injected <- macho_guy_words |>
+    c(male_anchors)
+
+```
+
+```{r loadData1, include=FALSE}
+# --- 3) Loading Data  ----------------
+
+
+## -------------  Warriner's valence-----------
+
+#(I'm keeping Arousal and Dominance since it might be useful later)
+
+warriner <- read_csv(warriner_path, show_col_types = FALSE) |>
+  transmute(word=tolower(Word),
+         #Valence
+         valence=V.Mean.Sum,
+         # Arousal
+         arousal=A.Mean.Sum,
+         # Dominance
+         dominance = D.Mean.Sum) 
+
+## ------------ Lists of traits --------------
+
+
+trait_list<- read.delim(traits_path, header = FALSE) |>
+  # the traits are stored in a column named V1 and I want to use it as a vector 
+  pull(V1) 
+
+
+  # I would fetch only the traits that got crowdslebelling in warriner: 
+traits_warriner <- warriner |>
+  filter(word %in% trait_list) 
+  
+
+## ----------- ENGall model -----------
+
+ load(ENGall_dir)
+#the load(ENGall_dir) creates an 'wordvecs.dat' object of which I want to store in more intuituve object name 
+ENGall_model <- wordvecs.dat
+length(ENGall_model)
+#Propoties of ENGall_model:
+
+# n of words: 100000 * 20 decades.  the authors only computed embeddings for words that were among the top 100,000 most frequent words over all time (for EngAll) 
+
+# n of dimensions: 300
+# type of embedding : SGNS 
+# contex window :  symmetric context window of 4 words
+
+
+
+#### ---- Check unavailable words by decade ----
+n_avwords <- vector()
+n_unav<- vector()
+prop_avail <- vector()
+n_total <- vector()
+for (i in seq_along(ENGall_model)) {
+  # Count available words as those with V1 != 0
+  n_avwords[i] <- sum(ENGall_model[[i]]$V1 != 0)
+  n_total[i] <- ENGall_model[[i]]|>
+      nrow()  
+  n_unav[i]  <- n_total[i] - n_avwords[i]
+  prop_avail[i] <- n_avwords[i] / n_total[i]
+}
+
+
+avwords_n_decade_df <- data.frame(
+  decade      = decades,
+  n_avwords   = n_avwords,
+  n_unavwords = n_unav,
+  prop_avail  = prop_avail
+)
+
+
+#  1. outof 10,000 on average we have in each decade 36,347 available words.
+#  2. notworthy is that the last slice 1990 have 71% available words, It doesn’t mean “29% are post-1990 neologisms.” It means 29% of the top-100k (over 1800–1999) simply don’t have enough occurrences in the 1990s slice to train vectors—often because they’re earlier-era words that faded out, or because they’re rare/orthographically different in that decade.
+
+#   Noteworthy, I believe that latter on we would fetch the words' valence from
+#   warriner's list of 14,000 words, so we would be bound to 14,000 in our word 
+#   embedding. given that not all the words in warriner's might not appear in the #   model's coprus we might be left with even smaller number of words. 
+
+
+### ---- Check if macho/nice words by decade ------- 
+# 1) Availability (token x decade)
+
+avail <- map2_df(ENGall_model, decades, ~
+  tibble(
+    decade    = .y,
+    token     = tolower(rownames(.x)),
+    available = .x$V1 != 0
+  )
+)
+
+#  Define the sets you care about
+sets <- list(
+  macho = macho_guy_words,
+  nice  = nice_guy_words,
+  male = male_anchors
+)
+
+wanted <- enframe(sets, name = "set", value = "token") |>
+  unnest(token) |>
+  mutate(token = tolower(token))
+
+# proportion per decade + list of missing words 
+macho_nice_words_by_decade_df <- wanted |>
+  left_join(avail, by = "token") |>
+  mutate(available = tidyr::replace_na(available, FALSE)) |>
+  group_by(set, decade) |>
+  summarise(
+    n_of_words_examined = n(),
+    n_available = sum(available),
+    prop_avail    = n_available / n_of_words_examined,
+    missing     = list(token[!available]),
+    .groups = "drop"
+  ) |>
+  arrange(set, decade)
+
+
+#Summery, it seems that the words "cocky" and "macho" doesnt' appear at all in the corpus of ENGAll therefore I'll omit them to avoid adding noise: 
+
+## consult with Almog regarding the fact that the list of words betwenn nice and macho words list aren't equal length(nice) =22 and length(macho) = 18 (after omition)
+
+length(macho_guy_words)
+#[1] 20
+
+length(macho_guy_words_injected)
+
+#[1] 25
+
+length(male_anchors)
+# [1] 5
+
+macho_guy_words <- setdiff(macho_guy_words,c("cocky", "macho"))
+macho_guy_words_injected <- setdiff(macho_guy_words_injected,c("cocky", "macho"))
+
+# Sanity check
+length(macho_guy_words)
+# [1] 18
+
+length(macho_guy_words_injected)
+
+# [1] 23
+
+# OK I'm sane
+    
+    
+```
+
+```{r DDR }
+
+# Now I will create the Macho and Nice guy contracts (DDR). 
+# in Addition I'll create DDR for valence - namely, a DDR of 'Good' dictionary
+
+
+# ---- setting the ENGall model to fit 'embedplyr' workflow
+
+# current the Engall[[i]] is of type df while predict() function expects an embedding object
+
+to_embeddings <- function(df){
+  # keep available rows, ensure rownames are tokens
+  stopifnot(is.data.frame(df), !is.null(rownames(df)))
+  
+  # Keep only available words - 
+  keep <- df$V1 != 0
+  
+  M <- as.matrix(df[keep, , drop = FALSE])
+  # give it the right class so embedplyr methods (predict/emb/find_nearest) work
+  class(M) <- c("embeddings", class(M))
+  attr(M, "normalized") <- FALSE  # optional meta; not required
+  
+  # crucial: token_index environment (token -> row index) - since the words are stored as rownames
+  idx_env <- new.env(parent = emptyenv())
+  toks <- rownames(M)
+  for (j in seq_along(toks)) assign(toks[j], j, envir = idx_env)
+  attr(M, "token_index") <- idx_env
+
+  M
+}
+
+
+
+
+## ----------- Macho DDR (with injection) ---------- 
+
+Macho_DDR_injected_by_decade <- list()
+
+for (i in seq_along(ENGall_model)) {
+  
+  # Getting the prediction of embedding DDR of the Macho_guy words (with injection) while converting the ENGall model to ebedding object:
+  
+  Macho_DDR_injected_by_decade[[i]] <- predict(to_embeddings(ENGall_model[[i]]), macho_guy_words_injected)|> 
+    
+    #I'll average the embedding inside the loop since each DDR embedding is computed  on it's on corpus/decade-  noteworthy the averages is done by Google Trillion Word corpus which meant to weight words base on their frequency. 
+    
+    
+    # Consult with Almog - should the weighting be done by our model of choice (ENGall) setting anchor="good"?
+  average_embedding()
+}
+
+ 
+# Make it more readable: 
+
+names(Macho_DDR_injected_by_decade) <- decades
+
+## ----------- Nice DDR (with injection) ---------- 
+
+# Follow the same process as before
+Nice_DDR_injected_by_decade <- list()
+
+for (i in seq_along(ENGall_model)) {
+  
+  Nice_DDR_injected_by_decade[[i]] <- predict(to_embeddings(ENGall_model[[i]]), nice_guy_words_injected)|> 
+
+  
+  average_embedding()
+}
+
+ 
+# Make it more readable: 
+
+names(Nice_DDR_injected_by_decade) <- decades
+
+```
+
+```{r Camputing MAC}
+
+# Next, I would Computed the MAC of the Macho and Nice guy contracts (DDR)
+
+```
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+s# --- 4) Main loop over decades (tidy) ------------------------
+
+
+results <- map_df(decades, function(d) {
+  message("Processing decade: ", d)
+  emb_path <- file.path(histwords_dir, paste0(d, ".txt"))
+  if (!file.exists(emb_path)) return(tibble())
+
+  M <- read_embeddings(emb_path)
+  M_norm <- l2_normalize(M)
+
+  v_macho <- concept_vec(M_norm, labels_macho)
+  v_nice  <- concept_vec(M_norm, labels_nice)
+
+  if (any(is.na(v_macho)) || any(is.na(v_nice))) {
+    return(tibble())  # skip if no concept representation available
+  }
+
+  # cosine to all words
+  cos_macho <- cosine_to_all(M_norm, v_macho)
+  cos_nice  <- cosine_to_all(M_norm, v_nice)
+
+  tibble(
+    decade = d,
+    word   = rownames(M_norm),
+    cos_macho = cos_macho,
+    cos_nice  = cos_nice,
+    rel_mac   = cos_macho - cos_nice  # ds4psych: relative association
+  )
+})
+
+# --- 5) Nearest neighbors & valence time-series --------------
+k <- 10  # top-k neighbors per concept per decade
+
+
+
+
+
+
+
+
+# Top-k by concept
+topk_long <- bind_rows(
+  results |> group_by(decade) |> slice_max(order_by = cos_macho, n = k) |>
+    mutate(concept = "macho", rank = row_number(), score = cos_macho) |>
+    select(decade, concept, word, rank, score),
+
+  results |> group_by(decade) |> slice_max(order_by = cos_nice, n = k) |>
+    mutate(concept = "nice", rank = row_number(), score = cos_nice) |>
+    select(decade, concept, word, rank, score)
+) |>
+  ungroup()
+
+# Join valence and summarize per decade
+valence_ts <- topk_long |>
+  left_join(warriner, by = "word") |>
+  group_by(decade, concept) |>
+  summarize(
+    k = n(),
+    mean_valence = mean(valence, na.rm = TRUE),
+    prop_valence_available = mean(!is.na(valence)),
+    .groups = "drop"
+  ) |>
+  mutate(concept = factor(concept, levels = c("macho","nice")))
+
+# --- 6) Visualize (quick ggplot) -----------------------------
+ggplot(valence_ts, aes(decade, mean_valence, group = concept)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ concept, ncol = 1, scales = "free_y") +
+  labs(title = "Valence of top-k neighbors over time",
+       subtitle = paste0("k = ", k, " (Warriner valence)"),
+       x = "Decade", y = "Mean valence of neighbors")
+
+# --- 7) Optional diagnostics: content churn ------------------
+# % overlap of top-k neighbors between adjacent decades, by concept
+churn <- topk_long |>
+  arrange(concept, decade, rank) |>
+  group_by(concept) |>
+  group_split()
+
+overlap_df <- map_df(churn, function(dfc) {
+  split_by_decade <- dfc |>
+    group_by(decade) |>
+    summarize(words = list(word), .groups = "drop")
+
+  if (nrow(split_by_decade) < 2) return(tibble())
+  tibble(
+    concept = unique(dfc$concept),
+    decade_from = head(split_by_decade$decade, -1),
+    decade_to   = tail(split_by_decade$decade, -1),
+    jaccard     = map2_dbl(
+      head(split_by_decade$words, -1),
+      tail(split_by_decade$words, -1),
+      ~ { inter <- length(intersect(.x, .y)); union <- length(union(.x, .y)); inter/union }
+    )
+  )
+})
+
+print(overlap_df)
+
+# --- 8) How to query nearest neighbors interactively ---------
+# Example: neighbors of "macho" and "nice" in 1950
+query_neighbors <- function(decade, query_word, top = 15) {
+  emb_path <- file.path(histwords_dir, paste0(decade, ".txt"))
+  stopifnot(file.exists(emb_path))
+  M <- read_embeddings(emb_path)
+  M_norm <- l2_normalize(M)
+  if (!query_word %in% rownames(M_norm)) return(tibble())
+  sims <- as.numeric(M_norm %*% M_norm[query_word, ])
+  tibble(word = rownames(M_norm), cosine = sims) |>
+    arrange(desc(cosine)) |>
+    slice_head(n = top + 1) |>
+    filter(word != query_word)
+}
+
+query_neighbors(1950, "macho", top = 15) |> print(n = 16)
+query_neighbors(1950, "nice",  top = 15) |> print(n = 16)
+
+# M_norm: L2-normalized embedding matrix with rownames = vocab
+phrase_vec <- function(M_norm, phrase_tokens) {
+  mats <- lapply(phrase_tokens, function(tk) if (tk %in% rownames(M_norm)) M_norm[tk, , drop=FALSE] else NULL)
+  mats <- Filter(Negate(is.null), mats)
+  if (length(mats) == 0) return(NA)
+  v <- Reduce(`+`, mats) / length(mats)
+  # renormalize
+  v / sqrt(sum(v^2))
+}
+
+# prefer single-token if it exists; else compose
+get_concept_vec <- function(M_norm, candidates, fallback_tokens) {
+  tok <- candidates[candidates %in% rownames(M_norm)][1]
+  if (!is.na(tok)) {
+    v <- M_norm[tok, ]
+    return(v / sqrt(sum(v^2)))
+  } else {
+    return(phrase_vec(M_norm, fallback_tokens))
+  }
+}
+
+# examples:
+v_macho_guy <- get_concept_vec(M_norm,
+                               candidates = c("macho_guy","tough_guy"),   # try phrase tokens if present
+                               fallback_tokens = c("macho","guy"))        # else compose
+
+v_nice_guy  <- get_concept_vec(M_norm,
+                               candidates = c("nice_guy","gentleman"),    # single-token if present
+                               fallback_tokens = c("nice","guy"))
 
 
 ```
