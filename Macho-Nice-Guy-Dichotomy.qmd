@@ -305,6 +305,18 @@ avwords_n_decade_df <- data.frame(
   prop_avail  = prop_avail
 )
 
+#  1. outof 10,000 on average we have in each decade 36,347 available words.
+#  2. the top 100,000 most requent words of all time, 1- 0.71 = 29% of them were
+#     coined after 1990 - given that the available words by decade 1990 was 71%. 
+
+#   Noteworthy, I believe that latter on we would fetch the words' valence from
+#   warriner's list of 14,000 words, so we would be bound to 14,000 in our word 
+#   embedding. given that not all the words in warriner's might not appear in the #   model's coprus we might be left with even smaller number of words. 
+
+
+
+
+
 
 
 s# --- 4) Main loop over decades (tidy) ------------------------
