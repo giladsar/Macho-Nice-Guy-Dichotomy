@@ -445,15 +445,15 @@ names(Nice_DDR_injected_by_decade) <- decades
 #----------- The 'Nudge Appraoch' -------------
 
 
-## ----------- Macho DDR (without injection) ---------- 
+## ----------- Macho DDR Nudge (without injection) ---------- 
 
 
 # Follow the same process as before
-Macho_DDR_by_decade <- list()
+Macho_DDR_nudge_by_decade <- list()
 
 for (i in seq_along(ENGall_model)) {
 
-  Macho_DDR_by_decade[[i]] <- predict(to_embeddings(ENGall_model[[i]]), macho_guy_words)|>
+  Macho_DDR_nudge_by_decade[[i]] <- predict(to_embeddings(ENGall_model[[i]]), macho_guy_words)|>
   average_embedding() |>
     
     # Same as before but now I'll apply the nudge toward the masculine direction
@@ -461,12 +461,24 @@ for (i in seq_along(ENGall_model)) {
     masculinity_nudge(E = ENGall_model[[i]])
 }
 
+names(Macho_DDR_nudge_by_decade) <- decades
 
-# Make it more readable:
 
-names(Macho_DDR_by_decade) <- decades
+## ----------- Nice DDR Nudge (without injection) ---------- 
 
-# 
+Nice_DDR_nudge_by_decade <- list()
+
+for (i in seq_along(ENGall_model)) {
+
+  Nice_DDR_nudge_by_decade[[i]] <- predict(to_embeddings(ENGall_model[[i]]), nice_guy_words)|>
+  average_embedding() |>
+    
+    # Same as before but now I'll apply the nudge toward the masculine direction
+    
+    masculinity_nudge(E = ENGall_model[[i]])
+}
+
+names(Nice_DDR_nudge_by_decade) <- decades
 
 
 
