@@ -261,7 +261,10 @@ warriner <- read_csv(warriner_path, show_col_types = FALSE) |>
          # Arousal
          arousal=A.Mean.Sum,
          # Dominance
-         dominance = D.Mean.Sum) 
+         dominance = D.Mean.Sum,
+         id = as.character(row_number())
+         )
+
 
 ## ------------ Lists of traits --------------
 
@@ -488,12 +491,77 @@ names(Nice_DDR_nudge_by_decade) <- decades
 
 ```
 
-```{r Camputing MAC}
+```{r DDT -> cosin(warriner)}
 
-# Next, I would Computed the MAC of the Macho and Nice guy contracts (DDR)
+# Next, I would computed the Cos similarity between the Macho and Nice guy contracts (DDR) and the words in the model THAT HAVe valence - meaning that they appearing in warriner
 
-# the approach i would follow would be the same approach as written in Tessa's code in the code chulk name:  writeFunction
+# Attention: the Warrineir DF contains 14,000 words with valence, after this examination we would do the same with the traitlist - meaning we would use only the words that appears in warriner AND traitlist.
 
+
+warriner_with_COSINE_from_DDR <- list() 
+
+# Switching to dfm - in order to change to ds4psych workflow to make which word a feature 
+
+# in order to do so lets switch it to corpus : 
+
+warriner_corpus <- warriner |>
+  corpus(
+    text_field = "word",
+     docid_field ="id")
+
+
+# REMEMBER the corpus those have valence in it ! 
+warriner_dfm <- warriner_corpus |>
+  tokens() |>
+  dfm()
+
+# now that we have dfm we can use get_sims()
+
+
+
+
+for (i in seq_along(ENGall_model)) {
+
+  
+  warriner_with_COSINE_from_DDR[[i]] <- warriner_dfm|>
+    
+    # Getting the embedding of the Warriner words by ENGallL:
+    
+    textstat_embedding(to_embeddings(ENGall_model[[i]]))  |> 
+    bind_cols(docvars(warriner_corpus)) |>
+    
+    # Getting the Cosine_squish form Macho with nudge (remeber that its a list by decades so add [[i]])
+    
+    get_sims(
+      V1:V300, 
+      list(
+        macho_nudge     = Macho_DDR_nudge_by_decade[[i]],
+        macho_inject       = Macho_DDR_injected_by_decade[[i]],
+        nice_nudge      = Nice_DDR_nudge_by_decade[[i]],
+        nice_inject       = Nice_DDR_injected_by_decade[[i]]
+      ), 
+      method = "cosine_squished"
+    ) |> 
+    
+    # adding the word for the results to be readable 
+    left_join(warriner |> select(word,id),
+              by= c("doc_id" ="id"))
+}
+names(warriner_with_COSINE_from_DDR) <- decades
+
+
+
+#-------- NOTICE! ------
+
+# Before the comparisons I'll omit the words that were used to create the DDR, namely, macho_guy_word and nice_guy_words to reduce noise 
+
+# a sanity check has reviled that the those words recievned the higher cos sim (DUH!)
+warriner_COSINE_DDR_omit_mch_nce<- list()
+for (i in seq_along(warriner_with_COSINE_from_DDR)) {
+  warriner_COSINE_DDR_omit_mch_nce[[i]]<- warriner_with_COSINE_from_DDR[[i]] |> 
+    filter(!word %in% c(macho_guy_words, nice_guy_words))
+}
+names(warriner_COSINE_DDR_omit_mch_nce) <- decades
 
 
 ```
