@@ -73,6 +73,7 @@ library(quanteda)
 library(text)
 library(embedplyr)
 
+
 ```
 
 ```{r Datapaths, include=FALSE}
@@ -410,7 +411,6 @@ length(macho_guy_words_injected)
 
 
 ## ----------- Macho DDR (with injection) ---------- 
-
 Macho_DDR_injected_by_decade <- list()
 
 for (i in seq_along(ENGall_model)) {
@@ -451,7 +451,7 @@ names(Nice_DDR_injected_by_decade) <- decades
 #----------- The 'Nudge Appraoch' -------------
 
 
-## ----------- Macho DDR Nudge (without injection) ---------- 
+## ----------- Macho DDR Nudge  ---------- 
 
 
 # Follow the same process as before
@@ -470,7 +470,7 @@ for (i in seq_along(ENGall_model)) {
 names(Macho_DDR_nudge_by_decade) <- decades
 
 
-## ----------- Nice DDR Nudge (without injection) ---------- 
+## ----------- Nice DDR Nudge  ---------- 
 
 Nice_DDR_nudge_by_decade <- list()
 
@@ -553,15 +553,72 @@ names(warriner_with_COSINE_from_DDR) <- decades
 
 #-------- NOTICE! ------
 
-# Before the comparisons I'll omit the words that were used to create the DDR, namely, macho_guy_word and nice_guy_words to reduce noise 
+# Before the comparisons I'll omit the words that were used to create the DDR, namely, macho_guy_word and nice_guy_words, to reduce noise .
 
-# a sanity check has reviled that the those words recievned the higher cos sim (DUH!)
-warriner_COSINE_DDR_omit_mch_nce<- list()
+# a sanity check has reviled that the those words receivned  higher cos sim (DUH!)
+warriner_COSINE_DDR_omit<- list()
 for (i in seq_along(warriner_with_COSINE_from_DDR)) {
-  warriner_COSINE_DDR_omit_mch_nce[[i]]<- warriner_with_COSINE_from_DDR[[i]] |> 
+  warriner_COSINE_DDR_omit[[i]]<- warriner_with_COSINE_from_DDR[[i]] |> 
     filter(!word %in% c(macho_guy_words, nice_guy_words))
 }
-names(warriner_COSINE_DDR_omit_mch_nce) <- decades
+names(warriner_COSINE_DDR_omit) <- decades
 
+#Exporting  files for inspection 
+# for (i in seq_along(warriner_with_COSINE_from_DDR)) {
+# 
+#   write_csv(
+#     warriner_COSINE_DDR_omit[[i]],
+#     file = paste("csv/",paste(decades[i],"decade.csv"))
+#   )
+# }
+
+```
+
+```{r Comparisons}
+#Helper - Comparison:
+cohens_d_pooled <- function(x, y) {
+  diff <- x - y
+  pooled_sd <- sqrt((var(x, na.rm = TRUE) + var(y, na.rm = TRUE)) / 2)
+  diff / pooled_sd
+}
+compare_DDRs<- function(df) {
+  
+  # Per Decade:
+  
+  # delta (raw): 
+  delta_mean_nudge <- mean(df$macho_nudge,na.rm = T) - mean(df$nice_nudge,na.rm = T) 
+  delta_mean_inject <- mean(df$macho_inject,na.rm = T) - mean(df$nice_inject,na.rm = T) 
+
+  # Per Word
+  df |> 
+    mutate(
+      # Nudge
+      delta_nudge = macho_nudge - nice_nudge,
+      delta_nudge_mean = delta_mean_nudge,
+      nudge_d = cohens_d_pooled(macho_nudge,nice_nudge),
+      # Inject
+      delta_inject = macho_inject - nice_inject,
+      delta_inject_mean = delta_mean_inject,
+      inject_d = cohens_d_pooled(macho_inject,nice_inject),
+    )
+  
+  
+  # # T-test results for inject
+  # tt_inject = list(t.test(delta_inject,
+  #                         mu = group_mean_inject, # this vector is constant so I choice the first element because irt doesn't matter
+  #                         alternative = "two.sided")),
+  # p_inject = tt_inject[[1]]$p.value,
+  # t_inject = tt_inject[[1]]$statistic,
+  # ci_low_inject = tt_inject[[1]]$conf.int[1],
+  # ci_high_inject = tt_inject[[1]]$conf.int[2]
+  # ) |>
+  # select(-tt_nudge, -tt_inject)  
+}
+
+warriner_COSINE_DDR_Diff <- list() 
+for (i in seq_along(warriner_COSINE_DDR_omit)) {
+  warriner_COSINE_DDR_Diff[[i]]<- compare_DDRs(warriner_COSINE_DDR_omit[[i]])
+}
+names(warriner_COSINE_DDR_Diff) <- decades 
 
 ```
