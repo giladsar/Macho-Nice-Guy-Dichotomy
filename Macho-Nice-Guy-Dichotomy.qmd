@@ -576,49 +576,238 @@ names(warriner_COSINE_DDR_omit) <- decades
 
 ```{r Comparisons}
 #Helper - Comparison:
-cohens_d_pooled <- function(x, y) {
-  diff <- x - y
-  pooled_sd <- sqrt((var(x, na.rm = TRUE) + var(y, na.rm = TRUE)) / 2)
-  diff / pooled_sd
-}
 compare_DDRs<- function(df) {
   
-  # Per Decade:
-  
-  # delta (raw): 
-  delta_mean_nudge <- mean(df$macho_nudge,na.rm = T) - mean(df$nice_nudge,na.rm = T) 
-  delta_mean_inject <- mean(df$macho_inject,na.rm = T) - mean(df$nice_inject,na.rm = T) 
-
-  # Per Word
   df |> 
     mutate(
       # Nudge
       delta_nudge = macho_nudge - nice_nudge,
-      delta_nudge_mean = delta_mean_nudge,
-      nudge_d = cohens_d_pooled(macho_nudge,nice_nudge),
       # Inject
       delta_inject = macho_inject - nice_inject,
-      delta_inject_mean = delta_mean_inject,
-      inject_d = cohens_d_pooled(macho_inject,nice_inject),
     )
-  
-  
-  # # T-test results for inject
-  # tt_inject = list(t.test(delta_inject,
-  #                         mu = group_mean_inject, # this vector is constant so I choice the first element because irt doesn't matter
-  #                         alternative = "two.sided")),
-  # p_inject = tt_inject[[1]]$p.value,
-  # t_inject = tt_inject[[1]]$statistic,
-  # ci_low_inject = tt_inject[[1]]$conf.int[1],
-  # ci_high_inject = tt_inject[[1]]$conf.int[2]
-  # ) |>
-  # select(-tt_nudge, -tt_inject)  
 }
 
+
+# Adding the variables to the list 
 warriner_COSINE_DDR_Diff <- list() 
 for (i in seq_along(warriner_COSINE_DDR_omit)) {
   warriner_COSINE_DDR_Diff[[i]]<- compare_DDRs(warriner_COSINE_DDR_omit[[i]])
 }
 names(warriner_COSINE_DDR_Diff) <- decades 
 
+# Make it a long format for it to be easier to work with :
+
+
+bind_with_decade <- function(dflist) {
+  
+  tibble(
+    decade = names(dflist),
+    df     = dflist
+  ) |>
+    mutate(df = map2(df, decade, ~ .x |>
+                       mutate(decade = .y))) |>
+    pull(df) |>
+    bind_rows()
+}
+
+raw_long <- bind_with_decade(warriner_COSINE_DDR_Diff) |>
+  mutate(
+    
+    # Make `decade` an ordered factor (sorted numerically)
+    
+    decade     = factor(decade, levels = sort(unique(as.integer(decade))) |> as.character())
+  ) 
+
+# ---- Q1 ------
+
+#is Overall theres a difference in association across 200 years between macho and nice guy to those list of words? :
+
+tt <- t.test(raw_long$macho_nudge,raw_long$nice_nudge,alternative = "two.sided") 
+if(tt$p.value < 0.05) {
+  print("Q1 - supports of H1")
+} else {
+  print("Q1 - supports of H0")
+}
+
+summ_t_wtnin_dcds <- raw_long|>
+  #removing na  by delta_nudge 
+  
+  filter(!is.na(delta_nudge)) |>
+  
+  group_by(decade)|>
+  summarise(
+    n = n(),
+    # Mean
+    mean_delta_nudge = mean(delta_nudge, na.rm =T ),
+    mean_delta_inject = mean(delta_inject, na.rm =T ),
+    
+    # SD
+    sd_nudge   = sd(delta_nudge, na.rm =T),
+    sd_inject   = sd(delta_inject, na.rm =T),
+    
+    # SE
+    se_nudge         = sd_nudge / sqrt(n),
+    se_inject         = sd_inject  / sqrt(n),
+  
+    # T 
+    t_nudge          = ifelse(n > 1,
+                              mean_delta_nudge / se_nudge,
+                              NA_real_),
+    t_inject      = ifelse(n > 1,
+                           mean_delta_inject / se_inject,
+                           NA_real_),
+
+    df         = n - 1L,
+    
+    # P values
+    p_t_nudge        = ifelse(n > 1,
+                              2 * pt(-abs(t_nudge), df),
+                              NA_real_),
+    p_t_inject        = ifelse(n > 1,
+                              2 * pt(-abs(t_inject), df),
+                              NA_real_),
+    
+    
+    #Cohen's D:  mean of Δ divided by SD of Δ
+    d_z_nudge        = mean_delta_nudge / sd_nudge,
+    d_z_inject       = mean_delta_inject / sd_inject,
+    
+    # Confidence intervals
+    ci_low_nudge      = ifelse(n > 1,
+                               mean_delta_nudge + qt(0.025, df) * se_nudge,
+                               NA_real_),
+    ci_high_nudge    = ifelse(n > 1,
+                              mean_delta_nudge + qt(0.975, df) * se_nudge,
+                              NA_real_),
+    ci_low_inject      = ifelse(n > 1,
+                               mean_delta_inject + qt(0.025, df) * se_inject,
+                               NA_real_),
+    ci_high_inject     = ifelse(n > 1,
+                              mean_delta_inject  + qt(0.975, df) * se_inject,
+                              NA_real_),
+    
+    # Significance
+    
+    sign_nudge = case_when(
+      p_t_nudge < 0.001 ~ "***",
+      p_t_nudge < 0.01  ~ "**",
+      p_t_nudge < 0.05  ~ "*",
+      TRUE        ~ "No"
+    ),
+    sign_inject  = case_when(
+      p_t_inject < 0.001 ~ "***",
+      p_t_inject < 0.01  ~ "**",
+      p_t_inject < 0.05  ~ "*",
+      TRUE        ~ "No"
+    ),
+    .groups = "drop"
+  )
+summ_t_inject <- summ_t_wtnin_dcds |>
+  select(-contains("_nudge"))
+
+summ_t_nudge <- summ_t_wtnin_dcds |>
+  select(-contains("_inject"))
+
+
+# Overall it seems that in the majority of decades across techniques of DDR there has been a significant difference in the association of words to the macho and nice guys- it's not that informative beside the fact that we were able to create two constructs that indeed are representing two different things 
+
+# -------- Q2-----------
+# What words or traits are most associate to each DDR in each decades, testing only the significance difference once: 
+
+words_t_summ<- raw_long  |> 
+  #removing na  by delta_nudge 
+  
+  filter(!is.na(delta_nudge)) |>
+  
+  # This time I'll group by WORD 
+  
+  mutate(doc_id = factor(doc_id))|>
+  group_by(doc_id) |>
+  summarise(
+    n = n(),
+    # Mean
+    mean_delta_nudge = mean(delta_nudge, na.rm =T ),
+    mean_delta_inject = mean(delta_inject, na.rm =T ),
+    
+    # SD
+    sd_nudge   = sd(delta_nudge, na.rm =T),
+    sd_inject   = sd(delta_inject, na.rm =T),
+    
+    # SE
+    se_nudge         = sd_nudge / sqrt(n),
+    se_inject         = sd_inject  / sqrt(n),
+    
+    # T 
+    t_nudge          = ifelse(n > 1,
+                              mean_delta_nudge / se_nudge,
+                              NA_real_),
+    t_inject      = ifelse(n > 1,
+                           mean_delta_inject / se_inject,
+                           NA_real_),
+    
+    df         = n - 1L,
+    
+    # P values
+    p_t_nudge        = ifelse(n > 1,
+                              2 * pt(-abs(t_nudge), df),
+                              NA_real_),
+    p_t_inject        = ifelse(n > 1,
+                               2 * pt(-abs(t_inject), df),
+                               NA_real_),
+    
+    
+    #Cohen's D:  mean of Δ divided by SD of Δ
+    d_z_nudge        = mean_delta_nudge / sd_nudge,
+    d_z_inject       = mean_delta_inject / sd_inject,
+    
+    # Confidence intervals
+    ci_low_nudge      = ifelse(n > 1,
+                               mean_delta_nudge + qt(0.025, df) * se_nudge,
+                               NA_real_),
+    ci_high_nudge    = ifelse(n > 1,
+                              mean_delta_nudge + qt(0.975, df) * se_nudge,
+                              NA_real_),
+    ci_low_inject      = ifelse(n > 1,
+                                mean_delta_inject + qt(0.025, df) * se_inject,
+                                NA_real_),
+    ci_high_inject     = ifelse(n > 1,
+                                mean_delta_inject  + qt(0.975, df) * se_inject,
+                                NA_real_),
+    
+    # Significance
+    
+    sign_nudge = case_when(
+      p_t_nudge < 0.001 ~ "***",
+      p_t_nudge < 0.01  ~ "**",
+      p_t_nudge < 0.05  ~ "*",
+      TRUE        ~ "No"
+    ),
+    sign_inject  = case_when(
+      p_t_inject < 0.001 ~ "***",
+      p_t_inject < 0.01  ~ "**",
+      p_t_inject < 0.05  ~ "*",
+      TRUE        ~ "No"
+    ),
+    .groups = "drop"
+  ) |>
+  left_join(raw_long |> select(doc_id,
+                               word,
+                               valence),
+            by= "doc_id")|>
+  # Staying on word level - row = words
+  unique()
+
+table(words_t_summ$n)
+
+# 1    2    3    4    5    6    7    8    9   10   11   12   13 
+# 169  337  405  444  314  277  196  161  230  314  357  354  283 
+
+#  14   15   16   17   18   19   20 
+# 202  473  343  526  809  681 5403 
+
+
+
+```
+
+```{r Plots}
 ```
