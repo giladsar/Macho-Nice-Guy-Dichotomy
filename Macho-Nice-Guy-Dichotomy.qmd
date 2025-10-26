@@ -73,6 +73,7 @@ library(quanteda)
 library(text)
 library(embedplyr)
 
+
 ```
 
 ```{r Datapaths, include=FALSE}
@@ -261,7 +262,10 @@ warriner <- read_csv(warriner_path, show_col_types = FALSE) |>
          # Arousal
          arousal=A.Mean.Sum,
          # Dominance
-         dominance = D.Mean.Sum) 
+         dominance = D.Mean.Sum,
+         id = as.character(row_number())
+         )
+
 
 ## ------------ Lists of traits --------------
 
@@ -297,6 +301,9 @@ n_avwords <- vector()
 n_unav<- vector()
 prop_avail <- vector()
 n_total <- vector()
+
+# Creating a list of available word and unavailable words: 
+
 for (i in seq_along(ENGall_model)) {
   # Count available words as those with V1 != 0
   n_avwords[i] <- sum(ENGall_model[[i]]$V1 != 0)
@@ -404,7 +411,6 @@ length(macho_guy_words_injected)
 
 
 ## ----------- Macho DDR (with injection) ---------- 
-
 Macho_DDR_injected_by_decade <- list()
 
 for (i in seq_along(ENGall_model)) {
@@ -445,7 +451,7 @@ names(Nice_DDR_injected_by_decade) <- decades
 #----------- The 'Nudge Appraoch' -------------
 
 
-## ----------- Macho DDR Nudge (without injection) ---------- 
+## ----------- Macho DDR Nudge  ---------- 
 
 
 # Follow the same process as before
@@ -464,7 +470,7 @@ for (i in seq_along(ENGall_model)) {
 names(Macho_DDR_nudge_by_decade) <- decades
 
 
-## ----------- Nice DDR Nudge (without injection) ---------- 
+## ----------- Nice DDR Nudge  ---------- 
 
 Nice_DDR_nudge_by_decade <- list()
 
@@ -485,79 +491,532 @@ names(Nice_DDR_nudge_by_decade) <- decades
 
 ```
 
-```{r Camputing MAC}
+```{r DDT -> cosin(warriner)}
 
-# Next, I would Computed the MAC of the Macho and Nice guy contracts (DDR)
+# Next, I would computed the Cos similarity between the Macho and Nice guy contracts (DDR) and the words in the model THAT HAVe valence - meaning that they appearing in warriner
+
+# Attention: the Warrineir DF contains 14,000 words with valence, after this examination we would do the same with the traitlist - meaning we would use only the words that appears in warriner AND traitlist.
+
+
+warriner_with_COSINE_from_DDR <- list() 
+
+# Switching to dfm - in order to change to ds4psych workflow to make which word a feature 
+
+# in order to do so lets switch it to corpus : 
+
+warriner_corpus <- warriner |>
+  corpus(
+    text_field = "word",
+     docid_field ="id")
+
+
+# REMEMBER the corpus those have valence in it ! 
+warriner_dfm <- warriner_corpus |>
+  tokens() |>
+  dfm()
+
+# now that we have dfm we can use get_sims()
+
+
+
+
+for (i in seq_along(ENGall_model)) {
+
+  
+  warriner_with_COSINE_from_DDR[[i]] <- warriner_dfm|>
+    
+    # Getting the embedding of the Warriner words by ENGallL:
+    
+    textstat_embedding(to_embeddings(ENGall_model[[i]]))  |> 
+    bind_cols(docvars(warriner_corpus)) |>
+    
+    # Getting the Cosine_squish form Macho with nudge (remeber that its a list by decades so add [[i]])
+    
+    get_sims(
+      V1:V300, 
+      list(
+        macho_nudge     = Macho_DDR_nudge_by_decade[[i]],
+        macho_inject       = Macho_DDR_injected_by_decade[[i]],
+        nice_nudge      = Nice_DDR_nudge_by_decade[[i]],
+        nice_inject       = Nice_DDR_injected_by_decade[[i]]
+      ), 
+      method = "cosine_squished"
+    ) |> 
+    
+    # adding the word for the results to be readable 
+    left_join(warriner |> select(word,id),
+              by= c("doc_id" ="id"))
+}
+names(warriner_with_COSINE_from_DDR) <- decades
+
+
+
+#-------- NOTICE! ------
+
+# Before the comparisons I'll omit the words that were used to create the DDR, namely, macho_guy_word and nice_guy_words, to reduce noise .
+
+# a sanity check has reviled that the those words receivned  higher cos sim (DUH!)
+warriner_COSINE_DDR_omit<- list()
+for (i in seq_along(warriner_with_COSINE_from_DDR)) {
+  warriner_COSINE_DDR_omit[[i]]<- warriner_with_COSINE_from_DDR[[i]] |> 
+    filter(!word %in% c(macho_guy_words, nice_guy_words))
+}
+names(warriner_COSINE_DDR_omit) <- decades
+
+#Exporting  files for inspection 
+# for (i in seq_along(warriner_with_COSINE_from_DDR)) {
+# 
+#   write_csv(
+#     warriner_COSINE_DDR_omit[[i]],
+#     file = paste("csv/",paste(decades[i],"decade.csv"))
+#   )
+# }
 
 ```
 
-s# --- 4) Main loop over decades (tidy) ------------------------
+```{r Comparisons}
+#Helper - Comparison:
+compare_DDRs<- function(df) {
+  
+  df |> 
+    mutate(
+      # Nudge
+      delta_nudge = macho_nudge - nice_nudge,
+      # Inject
+      delta_inject = macho_inject - nice_inject,
+    )
+}
 
-results \<- map_df(decades, function(d) { message("Processing decade: ", d) emb_path \<- file.path(histwords_dir, paste0(d, ".txt")) if (!file.exists(emb_path)) return(tibble())
 
-M \<- read_embeddings(emb_path) M_norm \<- l2_normalize(M)
+# Adding the variables to the list 
+warriner_COSINE_DDR_Diff <- list() 
+for (i in seq_along(warriner_COSINE_DDR_omit)) {
+  warriner_COSINE_DDR_Diff[[i]]<- compare_DDRs(warriner_COSINE_DDR_omit[[i]])
+}
+names(warriner_COSINE_DDR_Diff) <- decades 
 
-v_macho \<- concept_vec(M_norm, labels_macho) v_nice \<- concept_vec(M_norm, labels_nice)
+# Make it a long format for it to be easier to work with :
 
-if (any(is.na(v_macho)) \|\| any(is.na(v_nice))) { return(tibble()) \# skip if no concept representation available }
 
-\# cosine to all words cos_macho \<- cosine_to_all(M_norm, v_macho) cos_nice \<- cosine_to_all(M_norm, v_nice)
+bind_with_decade <- function(dflist) {
+  
+  tibble(
+    decade = names(dflist),
+    df     = dflist
+  ) |>
+    mutate(df = map2(df, decade, ~ .x |>
+                       mutate(decade = .y))) |>
+    pull(df) |>
+    bind_rows()
+}
 
-tibble( decade = d, word = rownames(M_norm), cos_macho = cos_macho, cos_nice = cos_nice, rel_mac = cos_macho - cos_nice \# ds4psych: relative association ) })
+raw_long <- bind_with_decade(warriner_COSINE_DDR_Diff) |>
+  mutate(
+    
+    # Make `decade` an ordered factor (sorted numerically)
+    
+    decade     = factor(decade, levels = sort(unique(as.integer(decade))) |> as.character())
+  ) 
 
-# --- 5) Nearest neighbors & valence time-series --------------
+# ---- Q1 ------
 
-k \<- 10 \# top-k neighbors per concept per decade
+#is Overall theres a difference in association across 200 years between macho and nice guy to those list of words? :
 
-# Top-k by concept
+tt <- t.test(raw_long$macho_nudge,raw_long$nice_nudge,alternative = "two.sided") 
+if(tt$p.value < 0.05) {
+  print("Q1 - supports of H1")
+} else {
+  print("Q1 - supports of H0")
+}
 
-topk_long \<- bind_rows( results \|\> group_by(decade) \|\> slice_max(order_by = cos_macho, n = k) \|\> mutate(concept = "macho", rank = row_number(), score = cos_macho) \|\> select(decade, concept, word, rank, score),
+summ_t_wtnin_dcds <- raw_long|>
+  #removing na  by delta_nudge 
+  
+  filter(!is.na(delta_nudge)) |>
+  
+  group_by(decade)|>
+  summarise(
+    n = n(),
+    # Mean
+    mean_delta_nudge = mean(delta_nudge, na.rm =T ),
+    mean_delta_inject = mean(delta_inject, na.rm =T ),
+    
+    # SD
+    sd_nudge   = sd(delta_nudge, na.rm =T),
+    sd_inject   = sd(delta_inject, na.rm =T),
+    
+    # SE
+    se_nudge         = sd_nudge / sqrt(n),
+    se_inject         = sd_inject  / sqrt(n),
+  
+    # T 
+    t_nudge          = ifelse(n > 1,
+                              mean_delta_nudge / se_nudge,
+                              NA_real_),
+    t_inject      = ifelse(n > 1,
+                           mean_delta_inject / se_inject,
+                           NA_real_),
 
-results \|\> group_by(decade) \|\> slice_max(order_by = cos_nice, n = k) \|\> mutate(concept = "nice", rank = row_number(), score = cos_nice) \|\> select(decade, concept, word, rank, score) ) \|\> ungroup()
+    df         = n - 1L,
+    
+    # P values
+    p_t_nudge        = ifelse(n > 1,
+                              2 * pt(-abs(t_nudge), df),
+                              NA_real_),
+    p_t_inject        = ifelse(n > 1,
+                              2 * pt(-abs(t_inject), df),
+                              NA_real_),
+    
+    
+    #Cohen's D:  mean of Δ divided by SD of Δ
+    d_z_nudge        = mean_delta_nudge / sd_nudge,
+    d_z_inject       = mean_delta_inject / sd_inject,
+    
+    # Confidence intervals
+    ci_low_nudge      = ifelse(n > 1,
+                               mean_delta_nudge + qt(0.025, df) * se_nudge,
+                               NA_real_),
+    ci_high_nudge    = ifelse(n > 1,
+                              mean_delta_nudge + qt(0.975, df) * se_nudge,
+                              NA_real_),
+    ci_low_inject      = ifelse(n > 1,
+                               mean_delta_inject + qt(0.025, df) * se_inject,
+                               NA_real_),
+    ci_high_inject     = ifelse(n > 1,
+                              mean_delta_inject  + qt(0.975, df) * se_inject,
+                              NA_real_),
+    
+    # Significance
+    
+    sign_nudge = case_when(
+      p_t_nudge < 0.001 ~ "***",
+      p_t_nudge < 0.01  ~ "**",
+      p_t_nudge < 0.05  ~ "*",
+      TRUE        ~ "No"
+    ),
+    sign_inject  = case_when(
+      p_t_inject < 0.001 ~ "***",
+      p_t_inject < 0.01  ~ "**",
+      p_t_inject < 0.05  ~ "*",
+      TRUE        ~ "No"
+    ),
+    .groups = "drop"
+  )
+summ_t_inject <- summ_t_wtnin_dcds |>
+  select(-contains("_nudge"))
 
-# Join valence and summarize per decade
+summ_t_nudge <- summ_t_wtnin_dcds |>
+  select(-contains("_inject"))
 
-valence_ts \<- topk_long \|\> left_join(warriner, by = "word") \|\> group_by(decade, concept) \|\> summarize( k = n(), mean_valence = mean(valence, na.rm = TRUE), prop_valence_available = mean(!is.na(valence)), .groups = "drop" ) \|\> mutate(concept = factor(concept, levels = c("macho","nice")))
 
-# --- 6) Visualize (quick ggplot) -----------------------------
+# Overall it seems that in the majority of decades across techniques of DDR there has been a significant difference in the association of words to the macho and nice guys- it's not that informative beside the fact that we were able to create two constructs that indeed are representing two different things 
 
-ggplot(valence_ts, aes(decade, mean_valence, group = concept)) + geom_line() + geom_point() + facet_wrap(\~ concept, ncol = 1, scales = "free_y") + labs(title = "Valence of top-k neighbors over time", subtitle = paste0("k = ", k, " (Warriner valence)"), x = "Decade", y = "Mean valence of neighbors")
+# -------- Q2-----------
+# --------- ACROSS DECADES------------ 
+# What words or traits are most associate to each DDR in across decades, testing only the significance difference once: 
 
-# --- 7) Optional diagnostics: content churn ------------------
+words_t_summ<- raw_long  |> 
+  #removing na  by delta_nudge 
+  
+  filter(!is.na(delta_nudge)) |>
+  
+  # This time I'll group by WORD 
+  
+  mutate(doc_id = factor(doc_id))|>
+  group_by(doc_id) |>
+  summarise(
+    n = n(),
+    # Mean
+    mean_delta_nudge = mean(delta_nudge, na.rm =T ),
+    mean_delta_inject = mean(delta_inject, na.rm =T ),
+    
+    # SD
+    sd_nudge   = sd(delta_nudge, na.rm =T),
+    sd_inject   = sd(delta_inject, na.rm =T),
+    
+    # SE
+    se_nudge         = sd_nudge / sqrt(n),
+    se_inject         = sd_inject  / sqrt(n),
+    
+    # T 
+    t_nudge          = ifelse(n > 1,
+                              mean_delta_nudge / se_nudge,
+                              NA_real_),
+    t_inject      = ifelse(n > 1,
+                           mean_delta_inject / se_inject,
+                           NA_real_),
+    
+    df         = n - 1L,
+    
+    # P values
+    p_t_nudge        = ifelse(n > 1,
+                              2 * pt(-abs(t_nudge), df),
+                              NA_real_),
+    p_t_inject        = ifelse(n > 1,
+                               2 * pt(-abs(t_inject), df),
+                               NA_real_),
+    
+    
+    #Cohen's D:  mean of Δ divided by SD of Δ
+    d_z_nudge        = mean_delta_nudge / sd_nudge,
+    d_z_inject       = mean_delta_inject / sd_inject,
+    
+    # Confidence intervals
+    ci_low_nudge      = ifelse(n > 1,
+                               mean_delta_nudge + qt(0.025, df) * se_nudge,
+                               NA_real_),
+    ci_high_nudge    = ifelse(n > 1,
+                              mean_delta_nudge + qt(0.975, df) * se_nudge,
+                              NA_real_),
+    ci_low_inject      = ifelse(n > 1,
+                                mean_delta_inject + qt(0.025, df) * se_inject,
+                                NA_real_),
+    ci_high_inject     = ifelse(n > 1,
+                                mean_delta_inject  + qt(0.975, df) * se_inject,
+                                NA_real_),
+    
+    # Significance
+    
+    sign_nudge = case_when(
+      p_t_nudge < 0.001 ~ "***",
+      p_t_nudge < 0.01  ~ "**",
+      p_t_nudge < 0.05  ~ "*",
+      TRUE        ~ "No"
+    ),
+    sign_inject  = case_when(
+      p_t_inject < 0.001 ~ "***",
+      p_t_inject < 0.01  ~ "**",
+      p_t_inject < 0.05  ~ "*",
+      TRUE        ~ "No"
+    ),
+    .groups = "drop"
+  ) |>
+  left_join(raw_long |> select(doc_id,
+                               word,
+                               valence),
+            by= "doc_id")|>
+  # Staying on word level - row = words
+  distinct()
 
-# % overlap of top-k neighbors between adjacent decades, by concept
+## ------  Top 20 Words------
+### ----- Macho --------------
+top_20_words_macho_nudge_overall <- words_t_summ |> 
+  # Sign only
+  filter(!sign_nudge == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    desc(d_z_nudge)
+  ) |>  
+  
+  # fetching the to 20
+  slice_head(n = 20)     
 
-churn \<- topk_long \|\> arrange(concept, decade, rank) \|\> group_by(concept) \|\> group_split()
+top_20_words_macho_inject_overall <- words_t_summ |> 
+  # Sign only
+  filter(!sign_inject == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    desc(d_z_inject)
+  ) |>  
+  
+  # fetching the to 20
+  slice_head(n = 20)     
 
-overlap_df \<- map_df(churn, function(dfc) { split_by_decade \<- dfc \|\> group_by(decade) \|\> summarize(words = list(word), .groups = "drop")
+### ----- Nice - top 20 words --------------
+top_20_words_nice_nudge_overall <- words_t_summ |> 
+  # Sign only
+  filter(!sign_nudge == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    # Notice this Time I want to get the lowest (minus) since delta is macho minus nice negative value indicate stronger association toward nice 
+    d_z_nudge
+  ) |>  
+  
+  # fetching the to 20
+  slice_head(n = 20)     
 
-if (nrow(split_by_decade) \< 2) return(tibble()) tibble( concept = unique(dfc$concept),
-    decade_from = head(split_by_decade$decade, -1), decade_to = tail(split_by_decade$decade, -1),
-    jaccard     = map2_dbl(
-      head(split_by_decade$words, -1), tail(split_by_decade\$words, -1), \~ { inter \<- length(intersect(.x, .y)); union \<- length(union(.x, .y)); inter/union } ) ) })
+top_20_words_nice_inject_overall <- words_t_summ |> 
+  # Sign only
+  filter(!sign_inject == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    # Notice this Time I want to get the lowest (minus) since delta is macho minus nice negative value indicate stronger association toward nice 
+    d_z_inject
+  ) |>  
+  
+  # fetching the to 20
+  slice_head(n = 20)     
 
-print(overlap_df)
 
-# --- 8) How to query nearest neighbors interactively ---------
 
-# Example: neighbors of "macho" and "nice" in 1950
+# Thoughts: I think we need rto considerate to have an inclusion criteria which only allows words that has been showing in more than +- 5 decades, since we have alot of top 20 words that have only appeared in a limited number of decades: 
 
-query_neighbors \<- function(decade, query_word, top = 15) { emb_path \<- file.path(histwords_dir, paste0(decade, ".txt")) stopifnot(file.exists(emb_path)) M \<- read_embeddings(emb_path) M_norm \<- l2_normalize(M) if (!query_word %in% rownames(M_norm)) return(tibble()) sims \<- as.numeric(M_norm %\*% M_norm\[query_word, \]) tibble(word = rownames(M_norm), cosine = sims) \|\> arrange(desc(cosine)) \|\> slice_head(n = top + 1) \|\> filter(word != query_word) }
+table(top_20_words_nice_nudge_overall$n)
+# [1] 2 || 3 || 4 || 20 
+# [2] 12|| 2 || 1 || 5 
+table(top_20_words_macho_nudge_overall$n)
+# [1] 2 ||  3 ||  7 
+# [2]15 ||  4 ||  1 
 
-query_neighbors(1950, "macho", top = 15) \|\> print(n = 16) query_neighbors(1950, "nice", top = 15) \|\> print(n = 16)
+## ------  Top 10 traits------
 
-# M_norm: L2-normalized embedding matrix with rownames = vocab
 
-phrase_vec \<- function(M_norm, phrase_tokens) { mats \<- lapply(phrase_tokens, function(tk) if (tk %in% rownames(M_norm)) M_norm\[tk, , drop=FALSE\] else NULL) mats \<- Filter(Negate(is.null), mats) if (length(mats) == 0) return(NA) v \<- Reduce(`+`, mats) / length(mats) \# renormalize v / sqrt(sum(v\^2)) }
+# There's two options to address the traits analysis:
+# the first option in to conduct the statistical test on the traits_warriner Df where the SD would be calculated in accordance with the traits delta while the second option would be to filter fro, words_t_summs only the words that are in traits_warriner- meaning the SD would be caculated on the ENTIRE words list. 
 
-# prefer single-token if it exists; else compose
+# The First option seems in my opinion to be the right one. 
 
-get_concept_vec \<- function(M_norm, candidates, fallback_tokens) { tok \<- candidates\[candidates %in% rownames(M_norm)\]\[1\] if (!is.na(tok)) { v \<- M_norm\[tok, \] return(v / sqrt(sum(v\^2))) } else { return(phrase_vec(M_norm, fallback_tokens)) } }
+# NOTICE that in raw_long we omitted the traits that were used to create our DDRs - so we shouldn't see any wo these words (macho_guy_words and nice_guy_words) in the trait list
 
-# examples:
 
-v_macho_guy \<- get_concept_vec(M_norm, candidates = c("macho_guy","tough_guy"), \# try phrase tokens if present fallback_tokens = c("macho","guy")) \# else compose
+traits_t_summ<- raw_long  |> 
+  #removing na  by delta_nudge 
+  
+  filter(!is.na(delta_nudge)) |> 
+  
+  # filtering to have the analysis conducted soley on the traits 
+  filter(doc_id %in% (traits_warriner |>
+                        select(id) |>
+                        pull())) |>
+  
+  # This time I'll group by WORD 
+  
+  mutate(doc_id = factor(doc_id))|>
+  group_by(doc_id) |>
+  summarise(
+    n = n(),
+    # Mean
+    mean_delta_nudge = mean(delta_nudge, na.rm =T ),
+    mean_delta_inject = mean(delta_inject, na.rm =T ),
+    
+    # SD
+    sd_nudge   = sd(delta_nudge, na.rm =T),
+    sd_inject   = sd(delta_inject, na.rm =T),
+    
+    # SE
+    se_nudge         = sd_nudge / sqrt(n),
+    se_inject         = sd_inject  / sqrt(n),
+    
+    # T 
+    t_nudge          = ifelse(n > 1,
+                              mean_delta_nudge / se_nudge,
+                              NA_real_),
+    t_inject      = ifelse(n > 1,
+                           mean_delta_inject / se_inject,
+                           NA_real_),
+    
+    df         = n - 1L,
+    
+    # P values
+    p_t_nudge        = ifelse(n > 1,
+                              2 * pt(-abs(t_nudge), df),
+                              NA_real_),
+    p_t_inject        = ifelse(n > 1,
+                               2 * pt(-abs(t_inject), df),
+                               NA_real_),
+    
+    
+    #Cohen's D:  mean of Δ divided by SD of Δ
+    d_z_nudge        = mean_delta_nudge / sd_nudge,
+    d_z_inject       = mean_delta_inject / sd_inject,
+    
+    # Confidence intervals
+    ci_low_nudge      = ifelse(n > 1,
+                               mean_delta_nudge + qt(0.025, df) * se_nudge,
+                               NA_real_),
+    ci_high_nudge    = ifelse(n > 1,
+                              mean_delta_nudge + qt(0.975, df) * se_nudge,
+                              NA_real_),
+    ci_low_inject      = ifelse(n > 1,
+                                mean_delta_inject + qt(0.025, df) * se_inject,
+                                NA_real_),
+    ci_high_inject     = ifelse(n > 1,
+                                mean_delta_inject  + qt(0.975, df) * se_inject,
+                                NA_real_),
+    
+    # Significance
+    
+    sign_nudge = case_when(
+      p_t_nudge < 0.001 ~ "***",
+      p_t_nudge < 0.01  ~ "**",
+      p_t_nudge < 0.05  ~ "*",
+      TRUE        ~ "No"
+    ),
+    sign_inject  = case_when(
+      p_t_inject < 0.001 ~ "***",
+      p_t_inject < 0.01  ~ "**",
+      p_t_inject < 0.05  ~ "*",
+      TRUE        ~ "No"
+    ),
+    .groups = "drop"
+  ) |>
+  left_join(raw_long |> select(doc_id,
+                               word,
+                               valence),
+            by= "doc_id")|>
+  # Staying on word level - row = words
+  distinct()
 
-v_nice_guy \<- get_concept_vec(M_norm, candidates = c("nice_guy","gentleman"), \# single-token if present fallback_tokens = c("nice","guy"))
+#### ------ Macho -------
+top_10_traits_macho_nudge_overall <- traits_t_summ |> 
+  # Sign only
+  filter(!sign_nudge == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    desc(d_z_nudge)
+  ) |>  
+  
+  # fetching the top 10
+  slice_head(n = 10)     
 
-\`\`\`
+
+top_10_traits_macho_inject_overall <- traits_t_summ |> 
+  # Sign only
+  filter(!sign_inject == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    desc(d_z_inject)
+  ) |>  
+  
+  # fetching the top 10
+  slice_head(n = 10)     
+
+### ----- Nice --------------
+top_10_traits_nice_nudge_overall <- traits_t_summ |> 
+  # Sign only
+  filter(!sign_nudge == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    # Notice this Time I want to get the lowest (minus) since delta is macho minus nice negative value indicate stronger association toward nice 
+    d_z_nudge
+  ) |>  
+  
+  # fetching the to 20
+  slice_head(n = 10)     
+
+top_10_traits_nice_inject_overall <- traits_t_summ |> 
+  # Sign only
+  filter(!sign_inject == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    # Notice this Time I want to get the lowest (minus) since delta is macho minus nice negative value indicate stronger association toward nice 
+    d_z_inject
+  ) |>  
+  
+  # fetching the top 10
+  slice_head(n = 10)     
+
+# Insights: it seems that the problem of small n()- times that the traits appear in a decade model - is less severe, most of the words appear more then 10 times overall across models
+
+valeace_traits
+
+# --------- WITHIN DECADES------------ 
+
+#----- Q3 ----
+
+# I would run the same test within each decade to identify the top 10 most related traits (and maybe words although they are much more complicated to qualitatively infer something)
+
+```
+
+```{r Plots}
+```
