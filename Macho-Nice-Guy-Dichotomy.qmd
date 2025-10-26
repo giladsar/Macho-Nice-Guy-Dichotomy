@@ -712,7 +712,8 @@ summ_t_nudge <- summ_t_wtnin_dcds |>
 # Overall it seems that in the majority of decades across techniques of DDR there has been a significant difference in the association of words to the macho and nice guys- it's not that informative beside the fact that we were able to create two constructs that indeed are representing two different things 
 
 # -------- Q2-----------
-# What words or traits are most associate to each DDR in each decades, testing only the significance difference once: 
+# --------- ACROSS DECADES------------ 
+# What words or traits are most associate to each DDR in across decades, testing only the significance difference once: 
 
 words_t_summ<- raw_long  |> 
   #removing na  by delta_nudge 
@@ -795,17 +796,225 @@ words_t_summ<- raw_long  |>
                                valence),
             by= "doc_id")|>
   # Staying on word level - row = words
-  unique()
+  distinct()
 
-table(words_t_summ$n)
+## ------  Top 20 Words------
+### ----- Macho --------------
+top_20_words_macho_nudge_overall <- words_t_summ |> 
+  # Sign only
+  filter(!sign_nudge == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    desc(d_z_nudge)
+  ) |>  
+  
+  # fetching the to 20
+  slice_head(n = 20)     
 
-# 1    2    3    4    5    6    7    8    9   10   11   12   13 
-# 169  337  405  444  314  277  196  161  230  314  357  354  283 
+top_20_words_macho_inject_overall <- words_t_summ |> 
+  # Sign only
+  filter(!sign_inject == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    desc(d_z_inject)
+  ) |>  
+  
+  # fetching the to 20
+  slice_head(n = 20)     
 
-#  14   15   16   17   18   19   20 
-# 202  473  343  526  809  681 5403 
+### ----- Nice - top 20 words --------------
+top_20_words_nice_nudge_overall <- words_t_summ |> 
+  # Sign only
+  filter(!sign_nudge == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    # Notice this Time I want to get the lowest (minus) since delta is macho minus nice negative value indicate stronger association toward nice 
+    d_z_nudge
+  ) |>  
+  
+  # fetching the to 20
+  slice_head(n = 20)     
+
+top_20_words_nice_inject_overall <- words_t_summ |> 
+  # Sign only
+  filter(!sign_inject == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    # Notice this Time I want to get the lowest (minus) since delta is macho minus nice negative value indicate stronger association toward nice 
+    d_z_inject
+  ) |>  
+  
+  # fetching the to 20
+  slice_head(n = 20)     
 
 
+
+# Thoughts: I think we need rto considerate to have an inclusion criteria which only allows words that has been showing in more than +- 5 decades, since we have alot of top 20 words that have only appeared in a limited number of decades: 
+
+table(top_20_words_nice_nudge_overall$n)
+# [1] 2 || 3 || 4 || 20 
+# [2] 12|| 2 || 1 || 5 
+table(top_20_words_macho_nudge_overall$n)
+# [1] 2 ||  3 ||  7 
+# [2]15 ||  4 ||  1 
+
+## ------  Top 10 traits------
+
+
+# There's two options to address the traits analysis:
+# the first option in to conduct the statistical test on the traits_warriner Df where the SD would be calculated in accordance with the traits delta while the second option would be to filter fro, words_t_summs only the words that are in traits_warriner- meaning the SD would be caculated on the ENTIRE words list. 
+
+# The First option seems in my opinion to be the right one. 
+
+# NOTICE that in raw_long we omitted the traits that were used to create our DDRs - so we shouldn't see any wo these words (macho_guy_words and nice_guy_words) in the trait list
+
+
+traits_t_summ<- raw_long  |> 
+  #removing na  by delta_nudge 
+  
+  filter(!is.na(delta_nudge)) |> 
+  
+  # filtering to have the analysis conducted soley on the traits 
+  filter(doc_id %in% (traits_warriner |>
+                        select(id) |>
+                        pull())) |>
+  
+  # This time I'll group by WORD 
+  
+  mutate(doc_id = factor(doc_id))|>
+  group_by(doc_id) |>
+  summarise(
+    n = n(),
+    # Mean
+    mean_delta_nudge = mean(delta_nudge, na.rm =T ),
+    mean_delta_inject = mean(delta_inject, na.rm =T ),
+    
+    # SD
+    sd_nudge   = sd(delta_nudge, na.rm =T),
+    sd_inject   = sd(delta_inject, na.rm =T),
+    
+    # SE
+    se_nudge         = sd_nudge / sqrt(n),
+    se_inject         = sd_inject  / sqrt(n),
+    
+    # T 
+    t_nudge          = ifelse(n > 1,
+                              mean_delta_nudge / se_nudge,
+                              NA_real_),
+    t_inject      = ifelse(n > 1,
+                           mean_delta_inject / se_inject,
+                           NA_real_),
+    
+    df         = n - 1L,
+    
+    # P values
+    p_t_nudge        = ifelse(n > 1,
+                              2 * pt(-abs(t_nudge), df),
+                              NA_real_),
+    p_t_inject        = ifelse(n > 1,
+                               2 * pt(-abs(t_inject), df),
+                               NA_real_),
+    
+    
+    #Cohen's D:  mean of Δ divided by SD of Δ
+    d_z_nudge        = mean_delta_nudge / sd_nudge,
+    d_z_inject       = mean_delta_inject / sd_inject,
+    
+    # Confidence intervals
+    ci_low_nudge      = ifelse(n > 1,
+                               mean_delta_nudge + qt(0.025, df) * se_nudge,
+                               NA_real_),
+    ci_high_nudge    = ifelse(n > 1,
+                              mean_delta_nudge + qt(0.975, df) * se_nudge,
+                              NA_real_),
+    ci_low_inject      = ifelse(n > 1,
+                                mean_delta_inject + qt(0.025, df) * se_inject,
+                                NA_real_),
+    ci_high_inject     = ifelse(n > 1,
+                                mean_delta_inject  + qt(0.975, df) * se_inject,
+                                NA_real_),
+    
+    # Significance
+    
+    sign_nudge = case_when(
+      p_t_nudge < 0.001 ~ "***",
+      p_t_nudge < 0.01  ~ "**",
+      p_t_nudge < 0.05  ~ "*",
+      TRUE        ~ "No"
+    ),
+    sign_inject  = case_when(
+      p_t_inject < 0.001 ~ "***",
+      p_t_inject < 0.01  ~ "**",
+      p_t_inject < 0.05  ~ "*",
+      TRUE        ~ "No"
+    ),
+    .groups = "drop"
+  ) |>
+  left_join(raw_long |> select(doc_id,
+                               word,
+                               valence),
+            by= "doc_id")|>
+  # Staying on word level - row = words
+  distinct()
+
+#### ------ Macho -------
+top_10_traits_macho_nudge_overall <- traits_t_summ |> 
+  # Sign only
+  filter(!sign_nudge == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    desc(d_z_nudge)
+  ) |>  
+  
+  # fetching the top 10
+  slice_head(n = 10)     
+
+
+top_10_traits_macho_inject_overall <- traits_t_summ |> 
+  # Sign only
+  filter(!sign_inject == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    desc(d_z_inject)
+  ) |>  
+  
+  # fetching the top 10
+  slice_head(n = 10)     
+
+### ----- Nice --------------
+top_10_traits_nice_nudge_overall <- traits_t_summ |> 
+  # Sign only
+  filter(!sign_nudge == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    # Notice this Time I want to get the lowest (minus) since delta is macho minus nice negative value indicate stronger association toward nice 
+    d_z_nudge
+  ) |>  
+  
+  # fetching the to 20
+  slice_head(n = 10)     
+
+top_10_traits_nice_inject_overall <- traits_t_summ |> 
+  # Sign only
+  filter(!sign_inject == "No") |> 
+  # arranging to but the standardized delta across decades 
+  arrange(
+    # Notice this Time I want to get the lowest (minus) since delta is macho minus nice negative value indicate stronger association toward nice 
+    d_z_inject
+  ) |>  
+  
+  # fetching the top 10
+  slice_head(n = 10)     
+
+# Insights: it seems that the problem of small n()- times that the traits appear in a decade model - is less severe, most of the words appear more then 10 times overall across models
+
+valeace_traits
+
+# --------- WITHIN DECADES------------ 
+
+#----- Q3 ----
+
+# I would run the same test within each decade to identify the top 10 most related traits (and maybe words although they are much more complicated to qualitatively infer something)
 
 ```
 
