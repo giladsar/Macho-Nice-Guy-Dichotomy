@@ -969,8 +969,8 @@ nice_table_all_words<- data.frame(
   rank= c(1:10)
 
 )
-nice_all_words_table<- kable(
-  nice_table_all,
+nice_table_all_words_fig<- kable(
+  nice_table_all_words,
   caption = "Top 10 Nice (vs. Macho) Words",
   digits = 3
 )
@@ -983,8 +983,8 @@ macho_table_all_words<- data.frame(
   rank= c(1:10)
 
 )
-macho_table_all_words<- kable(
-  macho_table_all,
+macho_table_all_words_fig<- kable(
+  macho_table_all_words,
   caption = "Top 10 Macho (vs. Nice) Words",
   digits = 3
 )
@@ -994,13 +994,13 @@ macho_table_all_words<- kable(
 ::::: columns
 ::: {.column width="50%"}
 ```{r}
-macho_table_all_words
+macho_table_all_words_fig
 ```
 :::
 
 ::: {.column width="50%"}
 ```{r}
-nice_table_all_words
+nice_table_all_words_fig
 ```
 :::
 :::::
