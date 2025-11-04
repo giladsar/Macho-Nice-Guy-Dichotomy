@@ -1,66 +1,72 @@
 ---
 title: "Macho-Nice Guy Dichotomy"
 author: "Gilad Sarusi"
-format: html
+format: 
+  html:
+    toc: true
+    number-sections: true
+    self-contained: true
+execute:
+  warning: false
+  message: false
 editor: visual
 ---
-ok
-## HisWords repo
+HistWords repo
+==============
 
-For our purpose I would use the same approach that Tessa E. S. Charlesworth et al. chose. Namely,the HisWords repo which is open online in [GitHub](https://github.com/williamleif/histwords?tab=readme-ov-file).
+For our purposes, I use the same approach chosen by Tessa E. S. Charlesworth and colleagues—namely, the HistWords repository, which is available on [GitHub](https://github.com/williamleif/histwords?tab=readme-ov-file).
 
 ### What's going on?
 
 HistWords is an open-source dataset and toolkit that provides word embeddings for different historical periods, trained on Google Books Ngram (and other corpora). Each decade (1800–1990) has its own 300-dimensional vector space representing the meaning of words in that era.
 
-Think of it as a longitudinal semantic dataset — instead of people measured over time, we have words measured across decades. Each vector encodes a word’s position in the shared “meaning space” of its time.
+Think of it as a longitudinal semantic dataset—rather than tracking people over time, we track words across decades. Each vector encodes a word’s position in the shared “meaning space” of its time.
 
-#### What We Can Do with It?
+#### What can we do with it?
 
-Inspect meaning: find nearest neighbors of a word in any decade.
+* **Inspect meaning:** find the nearest neighbors of a word in any decade.
+    
+* **Compare meanings over time:** compute cosine similarity for the same word across decades to track semantic drift.
+    
+* **Study cultural change:** analyze how a word’s associations (e.g., _macho_, _nice_) evolve by decade.
+    
+* **Compose phrases:** average vectors (e.g., _macho_ + _guy_) to represent multi-word concepts.
+    
+* **Align embeddings:** apply sequential Procrustes alignment to make spaces from different decades comparable.
+    
 
-Compare meanings over time: compute cosine similarity between the same word across decades to track semantic drift.
+### What are we comparing?
 
-Study cultural change: analyze how the associations of a word (e.g., macho, nice) evolve by decade.
+In this project, I adopt an approach similar to Tessa et al. designed to avoid the **alignment problem** inherent in diachronic word embeddings—which makes direct comparison of raw cosine similarities between two embedding spaces (e.g., the 1910s and the 1920s) invalid.
 
-Compose phrases: average vectors (e.g., macho + guy) to represent multi-word concepts.
+Instead of directly comparing raw cosine similarities of words across decades, I examine **within-decade** associations—for example, comparing how strongly _macho_ and _nice_ are each associated with the words in a given decade.
 
-Align embeddings: apply sequential Procrustes alignment to make spaces from different decades comparable.
+The difference between these associations is then converted into a standardized effect size, which serves as the unit of comparison across time. This method lets me trace semantic or attitudinal change without requiring the embedding spaces to be aligned.
 
-### What are We Comparng?
+* **Across time (overall)**—I identify the top 10 and top 50 word and trait associates that are most strongly (and relatively) associated with one type of man (and least with the comparison group) by:
+    
+    1. computing cosine similarity of all words and traits to each type in each decade (e.g., the cosine similarities of all traits to _macho man_ in 1800). After inspecting distances, I test whether there is a significant difference between the two types—i.e., whether the descriptors are semantically distinct from those of _nice guy_—as a sanity check; and
+        
+    2. calculating the difference in MAC scores; _Macho_ (MAC) − _Nice_ (MAC) identifies words/traits most associated with _Macho_, and reversing the subtraction captures the opposite pattern. In short, across time, which words and traits are most associated with Macho/Nice Guy?
+        
+* **Across time (by decade)**—I examine the top trait and word associates for each decade:
+    
+    1. compute decade-specific cosine-similarity difference scores and rank words and traits within each decade; and
+        
+    2. compute the average, decade-wise valence of the top associates by averaging ratings of those words’ positivity/negativity in each of the 20 decades.
+        
 
-In this project, I'll adopt an approach similar to that of Tessa and colleagues, designed to avoid the ***Alignment Problem*** inherent in diachronic word embeddings - which makes comparison of raw cosine similaritie between two embedding spaces (e.g 1910's and 1920's) invalid.
-
-Instead of directly comparing raw cosine similarities of words across decades, I'll examine within-decade associations—for example, comparing how strongly macho and nice are each associated with good in a given decade.
-
-The difference between these associations is then converted into a standardized effect size, which serves as the unit of comparison across time. This method allows me to trace semantic or attitudinal change without requiring the embedding spaces to be aligned.
-
--   **Overall-Time**- I'll identify the top 10 (and 50) word and trait associates that are most strongly, relatively associated with one type of men (and least associated with a comparison group) by:
-    -   <div>
-
-        1.  Computing the MAC of all words and traits to each individual type in each decade (e.g., the MAC of all traits to Macho-man in 1800), as well as to a comparison group (e.g., the MAC of all traits to Nice-man, in 1800).
-        2.  Calculating the difference of the MAC scores; Macho(MAC) - Nice(MAC) = the word/traits most associate with Macho and switching the components would be indicative to capture the opposite.
-        3.  Averaging these MAC differences across all 20 decades and ranking the words or traits according to their difference scores .
-
-        </div>
--   **Across-Time -** Ihe top trait and word associates separated by each decade were examined:
-    -   <div>
-
-        1.  Decade-specific MAC difference scores and rank words and traits within each decade.
-        2.  summarize change in the top 10 (and top 50) trait and word associates over decades by counting the number of traits/ words that overlapped in successive decades (e.g., 1800 to 1810, 1810 to 1820) by computing the correlation of MAC scores across time - Higher correlations indicate greater overlap across the two comparison terms.
-        3.  Finally, I'll compute average decade-wise valence of the top trait and word associates by averaging ratings of the top words’ positivity/negativity in each of the 20 decades.
-
-        </div>
-
-Nevertheless, following Tessa et al.’s consideration, I note that applying *orthogonal Procrustes* rotation could still be useful as a robustness check or for future extensions involving cross-decade word trajectory analyses.
+Nevertheless, following Tessa et al.’s guidance, applying **orthogonal Procrustes** rotation can still be useful as a robustness check or for future extensions involving cross-decade word-trajectory analyses.
 
 ::: callout-caution
-## The following code is written with the workflow of ds4psych: Data Science for Psychology: Natural Language (https://ds4psych.com). Therfore the toolset used in this code differs from tessa's.
+
+[`The following code is written using the ds4psych: Data Science for Psychology: Natural Language workflow (https://ds4psych.com). Therefore, the toolset used here differs from Tessa’s.`]{.smallcaps}
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 :::
 
-## Code
 
-```{r loadPackages, echo = FALSE, message=FALSE}}
+```{r loadPackages, echo = FALSE, message=FALSE}
 # ----------------------------------------------------
 # Packages
 library(tidyverse)
@@ -72,8 +78,7 @@ library(quanteda.textmodels)
 library(quanteda)
 library(text)
 library(embedplyr)
-
-
+library(knitr)
 ```
 
 ```{r Datapaths, include=FALSE}
@@ -81,16 +86,22 @@ library(embedplyr)
 # --- 0) Paths  -------------------
 ENGall_dir <- "engall/wordvecsdata_engall.RData"  # from HistWords repo
 
-decades <- seq(1800, 1990, by = 10)          # demo range; noteworthy, in the 2000s' there was a change in the N-Gram sampling. Therefore, embedding using the corpus of 2000's forward were excluded.
+decades <- seq(1800, 1990, by = 10)      
 
 
+```
+
+Notably, in the 2000s there was a change in N-gram sampling. Therefore, embeddings using the corpus from the 2000s onward are excluded.
+```{r}
 ## Words norm - for valence computation: 
 
 
 warriner_path <- "wordstim/allwrdnorms_warriner.csv"          # columns: word, valence, arousal, dominance - will be used as  valence indicates the average valence rating on a 9-point scale from 1 (very positive) to 9 (very negative), obtained from Warriner and colleagues (2013) 
 
-# We might consider an alternative: NRC VAD (S. M. Mohammad, 2018a) contains 20,007 words with ratings between 0 and 1 for valence, arousal and dominance.
+```
 
+As an alternative, we might consider NRC VAD (S. M. Mohammad, 2018), which contains 20,007 words with ratings between 0 and 1 for valence, arousal, and dominance.
+```{r}
 
 ## List of traits:
 
@@ -110,25 +121,27 @@ macho_guy_words <- c(
   "fearless","alpha", "leader", "charismatic", "commanding", "cocky", "ambitious", "macho"
 )
 
-
-# ----- Pay attention! ----- 
-
-#in order to make sure that the words are embedding in the context of masculine  traits I'll examine two approach: The first one would be to simply inject  'male anchors'. This should help to position each words groups into a semantic field and direction of a masculinity and not those traits in general, traits that can most definite appear in a feminine context - done in the 'Concepts' chulk. 
-
-# Cons / Watch-outs-  Anchor dominance risk: male anchors can outweigh trait terms if lists are small.more overShared anchors in both groups reduce between-group centroid distance (smaller margins)
-
-#What to Monitor- Anchor share in the centroid (≤30–40%),Cosine margin between group means, Top-N stability across decades (overlap %).
-
-# The Second approach, done in the next chunk of code 'Helpers' would be Masculinity projection tweak.  I will create e an helper that would deal with this problem by creating a male–female axis and then “masculinize” any term, to nudge it to the 'male' direction before scoring. This tweak gently steers polysemous words toward the male sense without hardwiring “man” on one axis that  applies to all items. 
-# 
-# Cons / Watch-outs: Axis quality: if the gender sets are unbalanced or drift strongly by decade, the direction can be noisy, Leakage: over-weighting (large w) can wash out the original semantics.
-# 
-# What to Monitor: Axis stability across decades (cosine between decade-specific d_male - the direction of male axis ). Small w (e.g., 0.1–0.3); run sensitivity analyses. Compare results with and without the tweak.
-
-#a comparison is needed to validate the results yields from those techniques and would serve as robustness check 
-
-
 ```
+
+### Pay attention!
+
+To ensure that words are embedded in the context of masculine traits, I examine two approaches. The first is to **inject male anchors**. This should help position each word group within a masculine semantic field rather than in a generic trait context (traits that could appear in feminine contexts as well). This is implemented in the _Concepts_ chunk.
+
+* **Cons / watch-outs:**  
+    _Anchor dominance risk_—male anchors can outweigh trait terms if the lists are small. Moreover, shared anchors in both groups reduce the distance between group centroids (smaller margins).  
+    **Monitor:** anchor share in each centroid (≤30–40%), cosine margin between group means, and Top-N stability across decades (overlap %).
+    
+
+The second approach, implemented in the next _Helpers_ chunk, is a **masculinity projection nudge**. I construct a male–female axis and then “masculinize” any term by nudging it toward the male direction before scoring. This gently steers polysemous words toward the male sense without hard-wiring “man” as a single axis for all items.
+
+* **Cons / watch-outs:**  
+    _Axis quality_—if the gender sets are unbalanced or drift strongly by decade, the direction can be noisy.  
+    _Leakage_—over-weighting (large _w_) can wash out original semantics.  
+    **Monitor:** axis stability across decades (cosine between decade-specific _d_<sub>male</sub>), use small _w_ (e.g., 0.1–0.3) and run sensitivity analyses; compare results with and without the tweak.
+    
+
+A comparison of both techniques is needed to validate results and serve as a robustness check.
+
 
 ```{r  Helpers}
 # --- 1) Small helpers ---------------------------------------
@@ -151,10 +164,13 @@ read_embeddings <- function(path) {
   M
 }
 
+```
 
+### Masculinity projection nudge
 
+As noted earlier, to interpret traits within a masculine frame, we apply a Masculinity Nudge: we construct a female–male axis in the embedding space and add a small component of this axis to each construct vector, gently shifting it toward the male semantic field so that subsequent comparisons reflect the words’ masculine sense.
+```{r}
 
-# Masculinity projection tweak 
 
 
 # E: numeric matrix (rows = tokens, cols = dims), 
@@ -233,12 +249,14 @@ to_embeddings <- function(df){
 
 ```
 
+The second approach—the **Inject approach**—as noted above, adds male anchor words to the word banks so that the average embedding of each list is drawn toward a masculine context.
+
 ```{r Concepts, include=FALSE}
 # --- 2) Defining concepts (labels) -----------------------------
 
  male_anchors <-  c("man","men","male","guy","boy")
 
-# "Inject them inside the Macho/Nice directionary 
+# "Inject them inside the Macho/Nice dictionary 
 nice_guy_words_injected <- nice_guy_words |>
   c(male_anchors)
 
@@ -279,22 +297,32 @@ trait_list<- read.delim(traits_path, header = FALSE) |>
 traits_warriner <- warriner |>
   filter(word %in% trait_list) 
   
+```
 
+### ENGall Model
+
+Properties of ENGall_model:
+
+-   n of words: 100,000 (same word list across all decades). the authors only computed embeddings for words that were among the top 100,000 most frequent words over all time (for EngAll)
+    -   n of dimensions: 300.
+    -   Type of Embedding : SGNS.
+    -   Context Window : symmetric context window of 4 words.
+
+```{r}
 ## ----------- ENGall model -----------
 
  load(ENGall_dir)
 #the load(ENGall_dir) creates an 'wordvecs.dat' object of which I want to store in more intuituve object name 
 ENGall_model <- wordvecs.dat
 length(ENGall_model)
-#Propoties of ENGall_model:
 
-# n of words: 100000 * 20 decades.  the authors only computed embeddings for words that were among the top 100,000 most frequent words over all time (for EngAll) 
+```
 
-# n of dimensions: 300
-# type of embedding : SGNS 
-# contex window :  symmetric context window of 4 words
+The ENGall model provides embeddings for the 100,000 most frequent words **across** all time. This means words coined later in history will be missing in earlier slices, and some words will be absent in particular decade models. The model is stored as a list of 20 elements, one per decade. In some decade data frames, certain words have no embedding.
 
+let's map those words.
 
+```{r}
 
 #### ---- Check unavailable words by decade ----
 n_avwords <- vector()
@@ -321,14 +349,29 @@ avwords_n_decade_df <- data.frame(
   prop_avail  = prop_avail
 )
 
+```
 
-#  1. outof 10,000 on average we have in each decade 36,347 available words.
-#  2. notworthy is that the last slice 1990 have 71% available words, It doesn’t mean “29% are post-1990 neologisms.” It means 29% of the top-100k (over 1800–1999) simply don’t have enough occurrences in the 1990s slice to train vectors—often because they’re earlier-era words that faded out, or because they’re rare/orthographically different in that decade.
+```{r availWordsTable}
+kable(avwords_n_decade_df |>
+        #adding comma
+        mutate(across(where(is.numeric),scales::comma)),
+      digits = 3,
+      caption = "Proportion of Words with Embedding")
 
-#   Noteworthy, I believe that latter on we would fetch the words' valence from
-#   warriner's list of 14,000 words, so we would be bound to 14,000 in our word 
-#   embedding. given that not all the words in warriner's might not appear in the #   model's coprus we might be left with even smaller number of words. 
+```
 
+Out of 100,000 words, each decade has on average 36,347 available words.
+
+Notably, the 1990s slice has ~71% of words available. This does **not** mean “29% are post-1990 words.” Rather, 29% of the top-100k (over 1800–1999) simply lack enough occurrences in the 1990s to train vectors—often because they are earlier-era words that faded out, or because they are rare or orthographically different in that decade.
+
+Later, we will pull valence from Warriner’s list (~14,000 words), which bounds our effective vocabulary to those items. Because not all Warriner words appear in ENGall, the intersection may be smaller.
+
+Another concern is whether some of the words used to define our constructs are missing from the model.
+
+
+Let's check!
+
+```{r}
 
 ### ---- Check if macho/nice words by decade ------- 
 # 1) Availability (token x decade)
@@ -366,11 +409,21 @@ macho_nice_words_by_decade_df <- wanted |>
   ) |>
   arrange(set, decade)
 
+```
 
-#Summery, it seems that the words "cocky" and "macho" doesnt' appear at all in the corpus of ENGAll therefore I'll omit them to avoid adding noise: 
+```{r}
 
-## consult with Almog regarding the fact that the list of words betwenn nice and macho words list aren't equal length(nice) =22 and length(macho) = 18 (after omition)
+kable(macho_nice_words_by_decade_df,
+      caption= "Construct's word presence across time")
+```
 
+
+It seems the words _cocky_ and _macho_ do not appear in ENGall at all. I therefore omit them to avoid adding noise.
+
+_(Consult with Almog about the unequal lengths of the nice vs. macho lists after omission: length(nice) = 22; length(macho) = 18.)_
+
+
+```{r}
 length(macho_guy_words)
 #[1] 20
 
@@ -397,15 +450,15 @@ length(macho_guy_words_injected)
     
 ```
 
-```{r DDR }
+# DDR
 
-# Now I will create the Macho and Nice guy contracts (DDR). 
-# in Addition I'll create DDR for valence - namely, a DDR of 'Good' dictionary
+Now I will create the Macho and Nice guy contracts (DDR). Currently the Engall\[\[i\]\] (the model of a specific decade) is of type df while predict() function expects an embedding object that way we would use the to_embedding() helper:
+
+```{r DDR }
 
 
 # ---- setting the ENGall model to fit 'embedplyr' workflow
 
-# current the Engall[[i]] is of type df while predict() function expects an embedding object that way we would use the to_embedding() helper:
 
 
 
@@ -491,11 +544,16 @@ names(Nice_DDR_nudge_by_decade) <- decades
 
 ```
 
+## Cos Sims
+
+DDRs are just points in semantic space. Next, I compute the cosine similarity of each model word to these DDRs.
+
+Specifically, I compute cosine similarity between the Macho and Nice DDRs and **only** the words in the model that have valence scores—i.e., those appearing in Warriner.
+
+_(Warriner contains ~14,000 words with valence. After this examination, I repeat the analysis with the trait list—i.e., restricting to words that appear in both Warriner and the trait list.)_
+
 ```{r DDT -> cosin(warriner)}
 
-# Next, I would computed the Cos similarity between the Macho and Nice guy contracts (DDR) and the words in the model THAT HAVe valence - meaning that they appearing in warriner
-
-# Attention: the Warrineir DF contains 14,000 words with valence, after this examination we would do the same with the traitlist - meaning we would use only the words that appears in warriner AND traitlist.
 
 
 warriner_with_COSINE_from_DDR <- list() 
@@ -516,7 +574,6 @@ warriner_dfm <- warriner_corpus |>
   dfm()
 
 # now that we have dfm we can use get_sims()
-
 
 
 
@@ -555,7 +612,7 @@ names(warriner_with_COSINE_from_DDR) <- decades
 
 # Before the comparisons I'll omit the words that were used to create the DDR, namely, macho_guy_word and nice_guy_words, to reduce noise .
 
-# a sanity check has reviled that the those words receivned  higher cos sim (DUH!)
+# a sanity check has reviled that the those words received higher cos sim (DUH!)
 warriner_COSINE_DDR_omit<- list()
 for (i in seq_along(warriner_with_COSINE_from_DDR)) {
   warriner_COSINE_DDR_omit[[i]]<- warriner_with_COSINE_from_DDR[[i]] |> 
@@ -573,6 +630,8 @@ names(warriner_COSINE_DDR_omit) <- decades
 # }
 
 ```
+
+## Deltas
 
 ```{r Comparisons}
 #Helper - Comparison:
@@ -617,11 +676,13 @@ raw_long <- bind_with_decade(warriner_COSINE_DDR_Diff) |>
     
     decade     = factor(decade, levels = sort(unique(as.integer(decade))) |> as.character())
   ) 
+```
 
-# ---- Q1 ------
+### ---- Q1 ------
 
-#is Overall theres a difference in association across 200 years between macho and nice guy to those list of words? :
+**Is there, overall, a difference in association across 200 years between Macho and Nice Guy for these word lists?**
 
+```{r}
 tt <- t.test(raw_long$macho_nudge,raw_long$nice_nudge,alternative = "two.sided") 
 if(tt$p.value < 0.05) {
   print("Q1 - supports of H1")
@@ -638,15 +699,17 @@ compare_nice_macho_words <- function (data, only_traits =F){
     mutate(doc_id = factor(doc_id))
   # Checking id the comparison is done by traits only or all the words
   if(only_traits){
-    data <-   filter(doc_id %in% (traits_warriner |>
+    data <-  data |> filter(doc_id %in% (traits_warriner |>
                                     select(id) |>
                                     pull()))
   }
   
-  # THIS FUNCTION IS AT WORD LEVEL NOT DECADE! 
-  
-  data |>
+
+  data  |>
+     # THIS FUNCTION IS AT WORD LEVEL NOT DECADE! 
+
     group_by(doc_id) |>
+    
     summarise(
       n = n(),
       # Mean
@@ -712,15 +775,18 @@ compare_nice_macho_words <- function (data, only_traits =F){
         p_t_inject < 0.05  ~ "*",
         TRUE        ~ "No"
       ),
-      .groups = "drop" |>
+      .groups = "drop"
+      ) |>
         left_join(raw_long |> select(doc_id,
                                      word,
                                      valence),
                   by= "doc_id")|>
         # Staying on word level - row = words
         distinct()
-    )
+    
 }
+
+
 
 
 
@@ -811,13 +877,29 @@ summ_t_inject <- summ_t_wtnin_dcds_overall |>
 summ_t_nudge <- summ_t_wtnin_dcds_overall |>
   select(-contains("_inject"))
 
+# NOT SIGNIFICANT - 1980
 
-# Overall it seems that in the majority of decades across techniques of DDR there has been a significant difference in the association of words to the macho and nice guys- it's not that informative beside the fact that we were able to create two constructs that indeed are representing two different things 
 
-# -------- Q2-----------
-# --------- ACROSS DECADES------------ 
-# What words or traits are most associate to each DDR in across decades, testing only the significance difference once: 
+```
 
+```{r GeneralComparison}
+kable (summ_t_wtnin_dcds_overall |> select(decade,
+                                        sign_nudge,
+                                        sign_inject,
+                                        p_t_nudge,
+                                        p_t_inject),
+       caption = "Significance test of the constructs throught the decades")
+```
+
+Overall, in most decades and across both DDR techniques, there is a significant difference in the association of words with _Macho_ versus _Nice_. This mainly serves as a validation that our two constructs capture distinct semantics.
+
+![A win is a Win!](media/win.gif){fig-align="center" width="60%"}
+
+### ---- Q2-------
+
+**Across all decades, which words or traits are most associated with each DDR (testing significance once overall)?**
+
+```{r}
 words_t_summ<- compare_nice_macho_words (raw_long)
   
 ## ------  Top 20 Words------
@@ -833,6 +915,9 @@ top_20_words_macho_nudge_overall <- words_t_summ |>
   # fetching the to 20
   slice_head(n = 20)     
 
+
+
+
 top_20_words_macho_inject_overall <- words_t_summ |> 
   # Sign only
   filter(!sign_inject == "No") |> 
@@ -844,7 +929,7 @@ top_20_words_macho_inject_overall <- words_t_summ |>
   # fetching the to 20
   slice_head(n = 20)     
 
-### ----- Nice - top 20 words --------------
+### ----- Nice  --------------
 top_20_words_nice_nudge_overall <- words_t_summ |> 
   # Sign only
   filter(!sign_nudge == "No") |> 
@@ -869,10 +954,59 @@ top_20_words_nice_inject_overall <- words_t_summ |>
   # fetching the to 20
   slice_head(n = 20)     
 
+```
+
+```{r WordsOverall, echo=FALSE}
+
+top_20_words_nice_nudge_overall
 
 
-# Thoughts: I think we need rto considerate to have an inclusion criteria which only allows words that has been showing in more than +- 5 decades, since we have alot of top 20 words that have only appeared in a limited number of decades: 
+nice_table_all_words<- data.frame(
+  cohenD_inject = top_20_words_nice_inject_overall$d_z_inject,
+  words_inject = top_20_words_nice_inject_overall$word,
+  cohenD_nudge = top_20_words_nice_nudge_overall$d_z_nudge,
+  word_nudge = top_20_words_nice_nudge_overall$word,
+  rank= c(1:10)
 
+)
+nice_all_words_table<- kable(
+  nice_table_all,
+  caption = "Top 10 Nice (vs. Macho) Words",
+  digits = 3
+)
+
+macho_table_all_words<- data.frame(
+  cohenD_inject = top_20_words_macho_inject_overall$d_z_inject,
+  words_inject = top_20_words_macho_inject_overall$word,
+  cohenD_nudge = top_20_words_macho_nudge_overall$d_z_nudge,
+  word_nudge = top_20_words_macho_nudge_overall$word,
+  rank= c(1:10)
+
+)
+macho_table_all_words<- kable(
+  macho_table_all,
+  caption = "Top 10 Macho (vs. Nice) Words",
+  digits = 3
+)
+
+```
+
+::::: columns
+::: {.column width="50%"}
+```{r}
+macho_table_all_words
+```
+:::
+
+::: {.column width="50%"}
+```{r}
+nice_table_all_words
+```
+:::
+:::::
+**Thought.** We should consider an inclusion criterion that retains only words appearing in ≥ ~5 decades, since many “Top-20” items occur in only a few decades.
+
+```{r thoughtAboutInclusion}
 table(top_20_words_nice_nudge_overall$n)
 # [1] 2 || 3 || 4 || 20 
 # [2] 12|| 2 || 1 || 5 
@@ -880,15 +1014,23 @@ table(top_20_words_macho_nudge_overall$n)
 # [1] 2 ||  3 ||  7 
 # [2]15 ||  4 ||  1 
 
+```
+
+For traits, there are two options:
+
+1. Run the statistical test on the `traits_warriner` data frame so that the SD is calculated from trait-level deltas; or
+    
+2. Filter `words_t_summ` to only those in `traits_warriner`, which computes SD over the **entire** word list.
+    
+
+Option (1) seems preferable.
+
+_Note:_ In `warriner_COSINE_DDR_omit` we removed the terms used to create the DDRs, so none of those (_macho_guy_words_ / _nice_guy_words_) should appear in the trait list.
+
+```{r}
 ## ------  Top 10 traits------
 
 
-# There's two options to address the traits analysis:
-# the first option in to conduct the statistical test on the traits_warriner Df where the SD would be calculated in accordance with the traits delta while the second option would be to filter fro, words_t_summs only the words that are in traits_warriner- meaning the SD would be caculated on the ENTIRE words list. 
-
-# The First option seems in my opinion to be the right one. 
-
-# NOTICE that in warriner_COSINE_DDR_omit we omitted the traits that were used to create our DDRs - so we shouldn't see any wo these words (macho_guy_words and nice_guy_words) in the trait list
 
 
 traits_t_summ<- compare_nice_macho_words(raw_long,only_traits = T)
@@ -903,7 +1045,8 @@ top_10_traits_macho_nudge_overall <- traits_t_summ |>
   ) |>  
   
   # fetching the top 10
-  slice_head(n = 10)     
+  slice_head(n = 10)    |> 
+  mutate(rank = row_number())
 
 
 top_10_traits_macho_inject_overall <- traits_t_summ |> 
@@ -915,7 +1058,8 @@ top_10_traits_macho_inject_overall <- traits_t_summ |>
   ) |>  
   
   # fetching the top 10
-  slice_head(n = 10)     
+  slice_head(n = 10)        |> 
+  mutate(rank = row_number())
 
 ### ----- Nice --------------
 top_10_traits_nice_nudge_overall <- traits_t_summ |> 
@@ -928,7 +1072,8 @@ top_10_traits_nice_nudge_overall <- traits_t_summ |>
   ) |>  
   
   # fetching the to 20
-  slice_head(n = 10)     
+  slice_head(n = 10)       |> 
+  mutate(rank = row_number()) 
 
 top_10_traits_nice_inject_overall <- traits_t_summ |> 
   # Sign only
@@ -940,26 +1085,337 @@ top_10_traits_nice_inject_overall <- traits_t_summ |>
   ) |>  
   
   # fetching the top 10
-  slice_head(n = 10)     
+  slice_head(n = 10)        |> 
+  mutate(rank = row_number())
 
-# Insights: it seems that the problem of small n()- times that the traits appear in a decade model - is less severe, most of the words appear more then 10 times overall across models
+```
 
-valeace_traits
 
+**Insight.** The “small _n_” problem (traits appearing in only a few decade models) is less severe here; most traits appear more than 10 times overall across models.
+ 
+ 
+```{r}
+
+
+### ---- Tabling-----
+
+nice_table_all<- data.frame(
+  cohenD_inject = top_10_traits_nice_inject_overall$d_z_inject,
+  words_inject = top_10_traits_nice_inject_overall$word,
+  cohenD_nudge = top_10_traits_nice_nudge_overall$d_z_nudge,
+  word_nudge = top_10_traits_nice_nudge_overall$word,
+  rank= c(1:10)
+
+)
+nice_all_traits_table<- kable(
+  nice_table_all,
+  caption = "Top 10 Nice (vs. Macho) Traits",
+  digits = 3
+)
+
+macho_table_all<- data.frame(
+  cohenD_inject = top_10_traits_macho_inject_overall$d_z_inject,
+  words_inject = top_10_traits_macho_inject_overall$word,
+  cohenD_nudge = top_10_traits_macho_nudge_overall$d_z_nudge,
+  word_nudge = top_10_traits_macho_nudge_overall$word,
+  rank= c(1:10)
+
+)
+macho_table_all_table<- kable(
+  macho_table_all,
+  caption = "Top 10 Macho (vs. Nice) Traits",
+  digits = 3
+)
+
+```
+
+::::: columns
+::: {.column width="50%"}
+```{r}
+macho_table_all_table
+```
+:::
+
+::: {.column width="50%"}
+```{r}
+nice_all_traits_table
+```
+:::
+:::::
+
+
+
+### ---- Q3 ----
+
+**Over time, does the valence of the words/traits most associated with one construct (vs. the other) change?**
+
+
+For each decade, I identify the Top-10 most related words and compute their mean valence.
+
+To make interpretation more intuitive, I rescale valence from the original range to −4…+4, where negative values indicate negative valence and positive values indicate, well, positive valence.
+```{r}
 # --------- WITHIN DECADES------------ 
 
 #----- Q3 ----
 
-# I would run the same test within each decade to identify the top 10 most related traits (and maybe words although they are much more complicated to qualitatively infer something)
+
+get_top_valence <- function(data,
+                            decade,
+                            is.nudge= F,
+                            only_traits = F,
+                            macho_vs = T) {
+  # Words or Traits ? 
+  if(only_traits){
+    data <-  data |> filter(doc_id %in% (traits_warriner |>
+                                           select(id) |>
+                                           pull()))
+  }
+  # Nudge or Inject
+  col <- if (is.nudge) "delta_nudge" else "delta_inject"
+  
+  
+  # If macho_vs is False meaning we want the words that are more associated to nice (vs macho) therefore assenting order of delta since delta is macho MINUS nice 
+  dir <- if (macho_vs) -1 else 1
+  data <- data[order(dir * data[[col]]), ]
+  data  |>
+    slice_head(n = 10) |>
+    summarise(
+      mean_valence = mean(valence, na.rm = TRUE),
+      decade = as.numeric(decade)
+    )
+}
+
+
+
 
 # the list of 20 df with deltas: warriner_COSINE_DDR_Diff
 
-summ_t_across_decades <-list()
-for (i in seq_along(warriner_COSINE_DDR_Diff)) {
-  summ_t_across_decades[[i]]<-compare_nice_macho_words(warriner_COSINE_DDR_Diff[[i]])
-}
+### ------- Macho ------
+#  Words Inject
+
+valence_words_macho_decades_inject<-  map2_dfr(
+  warriner_COSINE_DDR_Diff, decades,
+  ~ get_top_valence(.x,
+                    decade = .y)
+)|>
+  mutate(mean_valence =  mean_valence -4)
+
+  # Words Nudge
+
+valence_words_macho_decades_nudge <- map2_dfr(
+  warriner_COSINE_DDR_Diff,
+  decades,
+  ~ get_top_valence(.x,
+                    decade = .y,
+                    is.nudge = TRUE)
+) |>
+  mutate(mean_valence =  mean_valence -4)
+
+  # Traits Inject
+valence_traits_macho_decades_inject <- map2_dfr(
+  warriner_COSINE_DDR_Diff,
+  decades,
+  ~ get_top_valence(.x,
+                    decade = .y,
+                    only_traits = TRUE)
+) |>
+  mutate(mean_valence =  mean_valence -4)
+
+  
+   # Traits nudge
+
+valence_traits_macho_decades_nudge <- map2_dfr(
+  warriner_COSINE_DDR_Diff,
+  decades,
+  ~ get_top_valence(.x,
+                    decade = .y,
+                    only_traits = TRUE,
+                    is.nudge = TRUE)
+) |>
+  mutate(mean_valence =  mean_valence -4)
+  
+## -------- Nice 
+#  Words Inject
+
+valence_words_nice_decades_inject<-  map2_dfr(
+  warriner_COSINE_DDR_Diff, decades,
+  ~ get_top_valence(.x,
+                    decade = .y,
+                    macho_vs = F)
+) |>
+  mutate(mean_valence =  mean_valence -4)
+
+# Words Nudge
+valence_words_nice_decades_nudge <- map2_dfr(
+  warriner_COSINE_DDR_Diff,
+  decades,
+  ~ get_top_valence(.x,
+                    decade = .y,
+                    is.nudge = TRUE,
+                    macho_vs = F)
+) |>
+  mutate(mean_valence =  mean_valence -4)
+
+# Traits Inject
+valence_traits_nice_decades_inject <- map2_dfr(
+  warriner_COSINE_DDR_Diff,
+  decades,
+  ~ get_top_valence(.x,
+                    decade = .y,
+                    only_traits = TRUE,
+                    macho_vs = F)
+) |>
+  mutate(mean_valence =  mean_valence -4)
+
+# Traits nudge
+
+valence_traits_nice_decades_nudge <- map2_dfr(
+  warriner_COSINE_DDR_Diff,
+  decades,
+  ~ get_top_valence(.x,
+                    decade = .y,
+                    only_traits = TRUE,
+                    is.nudge = TRUE,
+                    macho_vs = F)
+) |>
+  mutate(mean_valence =  mean_valence -4)
+
+
+
+
+
+
+
+
+
+
+# ----- Modeling Macho ----
+
+# Word inject - Macho 
+lm_macho_words_inject <- lm(mean_valence ~ decade, data = valence_words_macho_decades_inject)
+
+# Word nudge - Macho 
+lm_macho_words_nudge <- lm(mean_valence ~ decade, data = valence_words_macho_decades_nudge)
+
+# Trait inject - Macho 
+lm_macho_traits_inject <- lm(mean_valence ~ decade, data = valence_traits_macho_decades_inject)
+
+# Trait nudge - Macho 
+lm_macho_traits_nudge <- lm(mean_valence ~ decade, data = valence_traits_macho_decades_nudge)
+
+
+
+# --------- Modeling Nice -------- 
+
+# Word inject - Nice 
+lm_nice_words_inject <- lm(mean_valence ~ decade, data = valence_words_nice_decades_inject)
+
+# Word nudge - Nice
+lm_nice_words_nudge <- lm(mean_valence ~ decade, data = valence_words_nice_decades_nudge)
+
+# Trait inject - Nice 
+lm_nice_traits_inject <- lm(mean_valence ~ decade, data = valence_traits_nice_decades_inject)
+
+# Trait nudge -Nice 
+lm_nice_traits_nudge <- lm(mean_valence ~ decade, data = valence_traits_nice_decades_nudge)
+
+
 
 ```
 
-```{r Plots}
+
+```{r Plots, echo = FALSE}
+sig_subtitle <- function(df) {
+  mod <- lm(mean_valence ~ decade, data = df)
+  b <- coef(mod)[2]
+  p <- summary(mod)$coefficients[2, 4]
+  sig <- ifelse(p < 0.05, "*", "n.s.")
+  sprintf("b = %.2f, p = %.3f (%s)", b, p, sig)
+}
+# Example: Create 4 ggplots (replace with your real ones)
+p1 <- ggplot(valence_words_macho_decades_inject, aes(decade, mean_valence)) +
+  geom_line(color = "#f8766d") + 
+  geom_smooth(method = "lm", se = T) +
+  labs(title = "Macho - Words Inject",
+      subtitle =sig_subtitle(valence_words_macho_decades_inject)
+) +
+  theme_minimal(base_size = 7)
+
+p2 <- ggplot(valence_words_macho_decades_nudge, aes(decade, mean_valence)) +
+  geom_line(color = "#00bfc4") + 
+  geom_smooth(method = "lm", se = T) +
+  labs(title = "Macho - Words Nudge",
+      subtitle =sig_subtitle(valence_words_macho_decades_nudge)
+      ) +
+  theme_minimal(base_size = 7)
+
+p3 <- ggplot(valence_words_nice_decades_inject, aes(decade, mean_valence)) +
+  geom_line(color = "#7cae00") + 
+  geom_smooth(method = "lm", se = T) +
+  labs(title = "Nice - Words Inject",
+       subtitle =sig_subtitle(valence_words_nice_decades_inject)
+  ) +
+  theme_minimal(base_size = 7)
+
+p4 <- ggplot(valence_words_nice_decades_nudge, aes(decade, mean_valence)) +
+  geom_line(color = "#c77cff") + 
+  geom_smooth(method = "lm", se = T) +
+  labs(title = "Nice - Words Nudge",
+       subtitle =sig_subtitle(valence_words_nice_decades_nudge)
+  ) +
+  theme_minimal(base_size = 7)
+
+# Traits: 
+
+p5 <- ggplot(valence_traits_macho_decades_inject, aes(decade, mean_valence)) +
+  geom_line(color = "#f8766d") + 
+  geom_smooth(method = "lm", se = T) +
+  labs(title = "Macho - Words Inject",
+       subtitle=sig_subtitle(valence_traits_macho_decades_inject)
+) +
+  theme_minimal(base_size = 7)
+
+p6 <- ggplot(valence_traits_macho_decades_nudge, aes(decade, mean_valence)) +
+  geom_line(color = "#00bfc4") + 
+  geom_smooth(method = "lm", se = T) +
+  labs(title = "Macho - Words Nudge",
+       subtitle=sig_subtitle(valence_traits_macho_decades_nudge)) +
+  theme_minimal(base_size = 7)
+
+p7 <- ggplot(valence_traits_nice_decades_inject, aes(decade, mean_valence)) +
+  geom_line(color = "#7cae00") + 
+  geom_smooth(method = "lm", se = T) +
+  labs(title = "Nice - Words Inject",
+       subtitle=sig_subtitle(valence_traits_nice_decades_inject)) +
+  theme_minimal(base_size = 7)
+
+p8 <- ggplot(valence_traits_nice_decades_nudge, aes(decade, mean_valence)) +
+  geom_line(color = "#c77cff") + 
+  geom_smooth(method = "lm", se = T) +
+  labs(title = "Nice - Words Nudge",
+        subtitle=sig_subtitle(valence_traits_nice_decades_nudge)) +
+  theme_minimal(base_size = 7)
+```
+![Voila!!](media/presentation.gif){fig-align="center" width="60%"}
+
+```{r FinalPlotWords, warning=FALSE, fig.width=12, fig.align='center', fig.fullwidth=TRUE, echo=FALSE}
+# ---- Combine 4 plots in a 2×2 grid ----
+library(patchwork) 
+(p1 | p2) /
+(p3 | p4) +
+  plot_annotation(
+    title = "Valence of Top 10 Words Across Decades",
+    subtitle = "Linear trends by condition (Inject vs Nudge)"
+  )
+```
+
+```{r FinalPlotTraits, warning=FALSE, fig.width=12, fig.align='center', fig.fullwidth=TRUE,echo = FALSE}
+# ---- Combine 4 plots in a 2×2 grid ----
+library(patchwork) 
+(p5 | p6) /
+(p7 | p8) +
+  plot_annotation(
+    title = "Valence of Top 10 Traits Across Decades",
+    subtitle = "Linear trends by condition (Inject vs Nudge)"
+  )
 ```
