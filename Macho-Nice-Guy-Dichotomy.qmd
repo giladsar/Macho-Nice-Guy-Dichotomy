@@ -1407,7 +1407,9 @@ library(patchwork)
   )
 ```
 
-#Attractiveness In this section, I constructed a decade-specific Attractiveness DDRs and then examine how semantically close the macho and nice representations are to attractiveness across time.
+# Attractiveness 
+
+In this section, I constructed a decade-specific Attractiveness DDRs and then examine how semantically close the macho and nice representations are to attractiveness across time.
 
 The goal is to quantify how the semantic association between Masochistic and gentle masculinity and attractiveness has shifted across historical decades.
 
@@ -1552,6 +1554,11 @@ inject_attr_plot <- ggplot(cosine_attract_inject_df, aes(x = decade)) +
     color = "Construct"
   ) +
   theme_minimal()
+
+ combied_plot<- nudge_attr_plot + inject_attr_plot +
+  plot_layout(ncol = 1, guides = "collect") &
+  theme(legend.position = "bottom")
+ 
 ```
 
 ```{r AttractivePlotDDRs}
@@ -1565,10 +1572,7 @@ inject_attr_plot <- ggplot(cosine_attract_inject_df, aes(x = decade)) +
 #| message: false
 #| warning: false
 
- combied_plot<- nudge_attr_plot + inject_attr_plot +
-  plot_layout(ncol = 1, guides = "collect") &
-  theme(legend.position = "bottom")
- 
+
  combied_plot
  
 
