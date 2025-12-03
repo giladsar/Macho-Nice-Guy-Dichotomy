@@ -136,29 +136,6 @@ The second approach, implemented in the next *Helpers* chunk, is a **masculinity
 
 A comparison of both techniques is needed to validate results and serve as a robustness check.
 
-```{r  Helpers}
-# --- 1) Small helpers ---------------------------------------
-
-# Read a single decade embedding file into a matrix with rownames = words
-
-read_embeddings <- function(path) {
-  # HistWords format: first line header with counts; thereafter: word + 300 dims
-  
-  raw <- vroom(path, col_names = FALSE, progress = FALSE, delim = " ")
-  # Some files include the first line as counts; detect and drop if so
-  if (nchar(raw$X1[1]) > 0 && !is.na(as.numeric(raw$X1[1]))) {
-    # first line looks numeric -> drop it
-    raw <- raw[-1, ]
-  }
-  words <- raw$X1
-  M <- as.matrix(raw[,-1])
-  rownames(M) <- words
-  storage.mode(M) <- "double"
-  M
-}
-
-```
-
 ### Masculinity projection nudge
 
 As noted earlier, to interpret traits within a masculine frame, we apply a Masculinity Nudge: we construct a female–male axis in the embedding space and add a small component of this axis to each construct vector, gently shifting it toward the male semantic field so that subsequent comparisons reflect the words’ masculine sense.
@@ -1407,7 +1384,7 @@ library(patchwork)
   )
 ```
 
-# Attractiveness 
+# Attractiveness
 
 In this section, I constructed a decade-specific Attractiveness DDRs and then examine how semantically close the macho and nice representations are to attractiveness across time.
 
