@@ -78,9 +78,17 @@ library(knitr)
 ```{r Datapaths, include=FALSE}
 
 # --- 0) Paths  -------------------
-ENGall_dir <- "engall/wordvecsdata_engall.RData"  # from HistWords repo
 
 decades <- seq(1800, 1990, by = 10)      
+model_names <- setNames(paste0("eng.all_sgns.",decades), decades) # all English books (Google N-grams)
+
+if (file.exists("engall/ENGall_model.RDS")) {
+  ENGall_model<-readRDS("engall/ENGall_model.RDS")
+}else {
+  ENGall_model <- lapply(model_names, load_embeddings, save = FALSE) # list of embedding models
+  saveRDS(ENGall_model, 
+          file="engall/ENGall_model.RDS")
+}
 
 
 ```
@@ -152,18 +160,13 @@ As noted earlier, to interpret traits within a masculine frame, we apply a Mascu
  female_anchors <-  c("woman", "women", "female","girl")
 
  
- build_male_female_axis <- function(E, male_tokens, female_tokens) {
-  avail <- rownames(E)
-  m <- intersect(tolower(male_tokens),   avail)
-  f <- intersect(tolower(female_tokens), avail)
-  if (length(m) == 0 || length(f) == 0)
-    stop("Insufficient anchors to build gender axis.")
-  
-  male_mu   <- colMeans(E[m, , drop = FALSE])
-  female_mu <- colMeans(E[f, , drop = FALSE])
-  axis <- male_mu - female_mu
-  axis / sqrt(sum(axis * axis)) # we want the gender axis to represent direction only, not magnitude. this normalization step is meant to make the axis to be of a unit length
- }
+ build_male_female_axis <- function(embeddings) {
+  male_ddr <- emb(embeddings, male_anchors) |> average_embedding()
+  female_ddr <- emb(embeddings, female_anchors) |> average_embedding()
+  male_ddr - female_ddr
+}
+
+ 
 
 # DDR-based masculinity function:
 
@@ -438,7 +441,7 @@ for (i in seq_along(ENGall_model)) {
   
   # Getting the prediction of embedding DDR of the Macho_guy words (with injection) while converting the ENGall model to ebedding object:
   
-  Macho_DDR_injected_by_decade[[i]] <- predict(to_embeddings(ENGall_model[[i]]), macho_guy_words_injected)|> 
+  Macho_DDR_injected_by_decade[[i]] <- predict(ENGall_model[[i]], macho_guy_words_injected)|> 
     
     #I'll average the embedding inside the loop since each DDR embedding is computed  on it's on corpus/decade-  noteworthy the averages is done by Google Trillion Word corpus which meant to weight words base on their frequency. 
     
@@ -459,7 +462,7 @@ Nice_DDR_injected_by_decade <- list()
 
 for (i in seq_along(ENGall_model)) {
   
-  Nice_DDR_injected_by_decade[[i]] <- predict(to_embeddings(ENGall_model[[i]]), nice_guy_words_injected)|> 
+  Nice_DDR_injected_by_decade[[i]] <- predict(ENGall_model[[i]], nice_guy_words_injected)|> 
   average_embedding()
 }
 
@@ -480,7 +483,7 @@ Macho_DDR_nudge_by_decade <- list()
 
 for (i in seq_along(ENGall_model)) {
 
-  Macho_DDR_nudge_by_decade[[i]] <- predict(to_embeddings(ENGall_model[[i]]), macho_guy_words)|>
+  Macho_DDR_nudge_by_decade[[i]] <- predict(ENGall_model[[i]], macho_guy_words)|>
   average_embedding() |>
     
     # Same as before but now I'll apply the nudge toward the masculine direction
@@ -497,7 +500,7 @@ Nice_DDR_nudge_by_decade <- list()
 
 for (i in seq_along(ENGall_model)) {
 
-  Nice_DDR_nudge_by_decade[[i]] <- predict(to_embeddings(ENGall_model[[i]]), nice_guy_words)|>
+  Nice_DDR_nudge_by_decade[[i]] <- predict(ENGall_model[[i]], nice_guy_words)|>
   average_embedding() |>
     
     # Same as before but now I'll apply the nudge toward the masculine direction
@@ -552,7 +555,7 @@ for (i in seq_along(ENGall_model)) {
     
     # Getting the embedding of the Warriner words by ENGallL:
     
-    textstat_embedding(to_embeddings(ENGall_model[[i]]))  |> 
+    textstat_embedding(ENGall_model[[i]])  |> 
     bind_cols(docvars(warriner_corpus)) |>
     
     # Getting the Cosine_squish form Macho with nudge (remeber that its a list by decades so add [[i]])
@@ -1441,14 +1444,14 @@ Each DDR represents a *single semantic vector* summarizing the meaning of attrac
 Attractiveness_DDR_injected_by_decade <- list()
 for (i in seq_along(ENGall_model)) {
   
-  Attractiveness_DDR_injected_by_decade[[i]] <- predict(to_embeddings(ENGall_model[[i]]), attractiveness_words_injected)|> 
+  Attractiveness_DDR_injected_by_decade[[i]] <- predict(ENGall_model[[i]], attractiveness_words_injected)|> 
     average_embedding()
 }
 names(Attractiveness_DDR_injected_by_decade) <- decades
 ## ----------- Attractiveness DDR Nudge  ----------
 Attractiveness_DDR_nudge_by_decade <- list()
 for (i in seq_along(ENGall_model)) {
-  Attractiveness_DDR_nudge_by_decade[[i]] <- predict(to_embeddings(ENGall_model[[i]]), attractiveness_words)|>
+  Attractiveness_DDR_nudge_by_decade[[i]] <- predict(ENGall_model[[i]], attractiveness_words)|>
   average_embedding() |>
     masculinity_nudge(E = ENGall_model[[i]])
 }
