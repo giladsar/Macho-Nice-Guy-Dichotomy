@@ -82,14 +82,6 @@ library(knitr)
 decades <- seq(1800, 1990, by = 10)      
 model_names <- setNames(paste0("eng.all_sgns.",decades), decades) # all English books (Google N-grams)
 
-if (file.exists("engall/ENGall_model.RDS")) {
-  ENGall_model<-readRDS("engall/ENGall_model.RDS")
-}else {
-  ENGall_model <- lapply(model_names, load_embeddings, save = FALSE) # list of embedding models
-  saveRDS(ENGall_model, 
-          file="engall/ENGall_model.RDS")
-}
-
 
 ```
 
@@ -161,8 +153,8 @@ As noted earlier, to interpret traits within a masculine frame, we apply a Mascu
 
  
  build_male_female_axis <- function(embeddings) {
-  male_ddr <- emb(embeddings, male_anchors) |> average_embedding()
-  female_ddr <- emb(embeddings, female_anchors) |> average_embedding()
+  male_ddr <- predict(embeddings, male_anchors) |> average_embedding()
+  female_ddr <- predict(embeddings, female_anchors) |> average_embedding()
   male_ddr - female_ddr
 }
 
@@ -185,40 +177,16 @@ masculinity_nudge <- function(ddr_vec, # Or any dim1:dim300 embedding object
   if (is.matrix(ddr_vec)) ddr_vec <- as.numeric(ddr_vec)
   
   axis <- build_male_female_axis(E, male_tokens, female_tokens)
-  ddr_vec <- ddr_vec / sqrt(sum(ddr_vec * ddr_vec))
+
   
   # apply nudge: shift toward masculine axis 
   ddr_vec_nudged <- ddr_vec + w * axis
-  
-  #re normalize  - Consult Almog if necessary 
-  ddr_vec_nudged <- ddr_vec_nudged / sqrt(sum(ddr_vec_nudged * ddr_vec_nudged))
   
   ddr_vec_nudged
 }
 
 
-# From df to embedding Object function- to fit 'embedplyr' workflow:
 
-to_embeddings <- function(df){
-  # keep available rows, ensure rownames are tokens
-  stopifnot(is.data.frame(df), !is.null(rownames(df)))
-  
-  # Keep only available words - 
-  keep <- df$V1 != 0
-  
-  M <- as.matrix(df[keep, , drop = FALSE])
-  # give it the right class so embedplyr methods (predict/emb/find_nearest) work
-  class(M) <- c("embeddings", class(M))
-  attr(M, "normalized") <- FALSE  # optional meta; not required
-  
-  # crucial: token_index environment (token -> row index) - since the words are stored as rownames
-  idx_env <- new.env(parent = emptyenv())
-  toks <- rownames(M)
-  for (j in seq_along(toks)) assign(toks[j], j, envir = idx_env)
-  attr(M, "token_index") <- idx_env
-
-  M
-}
 
 
 ```
@@ -228,9 +196,8 @@ The second approach—the **Inject approach**—as noted above, adds male anchor
 ```{r Concepts, include=FALSE}
 # --- 2) Defining concepts (labels) -----------------------------
 
- male_anchors <-  c("man","men","male","guy","boy")
 
-# "Inject them inside the Macho/Nice dictionary 
+# Inject them inside the Macho/Nice Construct 
 nice_guy_words_injected <- nice_guy_words |>
   c(male_anchors)
 
@@ -285,11 +252,14 @@ Properties of ENGall_model:
 ```{r}
 ## ----------- ENGall model -----------
 
- load(ENGall_dir)
-#the load(ENGall_dir) creates an 'wordvecs.dat' object of which I want to store in more intuituve object name 
-ENGall_model <- wordvecs.dat
+if (file.exists("engall/ENGall_model.RDS")) {
+  ENGall_model<-readRDS("engall/ENGall_model.RDS")
+}else {
+  ENGall_model <- lapply(model_names, load_embeddings, save = FALSE) # list of embedding models
+  saveRDS(ENGall_model, 
+          file="engall/ENGall_model.RDS")
+}
 length(ENGall_model)
-
 ```
 
 The ENGall model provides embeddings for the 100,000 most frequent words **across** all time. This means words coined later in history will be missing in earlier slices, and some words will be absent in particular decade models. The model is stored as a list of 20 elements, one per decade. In some decade data frames, certain words have no embedding.
@@ -308,7 +278,7 @@ n_total <- vector()
 
 for (i in seq_along(ENGall_model)) {
   # Count available words as those with V1 != 0
-  n_avwords[i] <- sum(ENGall_model[[i]]$V1 != 0)
+  n_avwords[i] <- sum(ENGall_model[[i]][, 1] != 0)
   n_total[i] <- ENGall_model[[i]]|>
       nrow()  
   n_unav[i]  <- n_total[i] - n_avwords[i]
@@ -353,7 +323,7 @@ avail <- map2_df(ENGall_model, decades, ~
   tibble(
     decade    = .y,
     token     = tolower(rownames(.x)),
-    available = .x$V1 != 0
+    available = .x[, 1] != 0
   )
 )
 
@@ -422,13 +392,30 @@ length(macho_guy_words_injected)
 ```
 
 # DDR
+I will next construct the Macho and Nice Guy semantic contrasts (DDRs). To do so, I will implement a helper function that iterates over the word-embedding models by decade. When the nudge option is set to TRUE, the function will first construct a masculinity-nudge axis. It will then compute the DDRs for each guy-type construct.
 
-Now I will create the Macho and Nice guy contracts (DDR). Currently the Engall\[\[i\]\] (the model of a specific decade) is of type df while predict() function expects an embedding object that way we would use the to_embedding() helper:
-
+Following Luis’ recommendation, rather than manually computing the difference between Macho and Nice Guy DDRs, I will use the internal anchored method implemented in get_sims. In this specification, a single similarity variable is produced, capturing relative proximity to the Macho versus Nice Guy anchors. Positive values indicate greater semantic association with the Macho prototype, whereas negative values indicate greater association with the Nice Guy prototype.
 ```{r DDR }
 
+# --- 
+decade_scores_helper <- lapply(ENGall_model, function(embeddings){
+  embeddings <- embeddings[magnitude(embeddings) != 0,]
 
-# ---- setting the ENGall model to fit 'embedplyr' workflow
+  # Nudged DDRS
+  nice_guy_ddr_nudge <- masculinity_nudge(ddr_vec = average_embedding(predict(embeddings,
+                                                                              nice_guy_words)),
+                                          E = embeddings)
+  
+  macho_guy_ddr_nudge <- masculinity_nudge(ddr_vec = average_embedding(predict(embeddings, macho_guy_words)),
+                                           E =embeddings ) 
+  
+  embeddings |> 
+    get_sims(
+      list("macho_vs_nice_nudge" = list(pos = macho_guy_ddr_nudge,
+                                  neg = nice_guy_ddr_nudge)),
+      method = "anchored"
+      )
+})
 
 
 
