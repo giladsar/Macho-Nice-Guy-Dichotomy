@@ -487,798 +487,13 @@ warriner_scores_omit <- lapply(warriner_with_scores, function(df) {
 
 ```
 
-## Deltas
-
-```{r Comparisons}
-#Helper - Comparison:
-compare_DDRs<- function(df) {
-  
-  df |> 
-    mutate(
-      # Nudge
-      delta_nudge = macho_nudge - nice_nudge,
-      # Inject
-      delta_inject = macho_inject - nice_inject,
-    )
-}
-
-
-# Adding the variables to the list 
-warriner_COSINE_DDR_Diff <- list() 
-for (i in seq_along(warriner_COSINE_DDR_omit)) {
-  warriner_COSINE_DDR_Diff[[i]]<- compare_DDRs(warriner_COSINE_DDR_omit[[i]])
-}
-names(warriner_COSINE_DDR_Diff) <- decades 
-
-# Make it a long format for it to be easier to work with :
-
-
-bind_with_decade <- function(dflist) {
-  
-  tibble(
-    decade = names(dflist),
-    df     = dflist
-  ) |>
-    mutate(df = map2(df, decade, ~ .x |>
-                       mutate(decade = .y))) |>
-    pull(df) |>
-    bind_rows()
-}
-
-raw_long <- bind_with_decade(warriner_COSINE_DDR_Diff) |>
-  mutate(
-    
-    # Make `decade` an ordered factor (sorted numerically)
-    
-    decade     = factor(decade, levels = sort(unique(as.integer(decade))) |> as.character())
-  ) 
-```
-
-### ---- Q1 ------
-
-**Is there, overall, a difference in association across 200 years between Macho and Nice Guy for these word lists?**
-
-```{r}
-tt <- t.test(raw_long$macho_nudge,raw_long$nice_nudge,alternative = "two.sided") 
-if(tt$p.value < 0.05) {
-  print("Q1 - supports of H1")
-} else {
-  print("Q1 - supports of H0")
-}
-
-compare_nice_macho_words <- function (data, only_traits =F){
-  
-  #removing NA  by delta_nudge 
-  data <- data |> 
-    filter(!is.na(delta_nudge)) |>
-    
-    mutate(doc_id = factor(doc_id))
-  # Checking id the comparison is done by traits only or all the words
-  if(only_traits){
-    data <-  data |> filter(doc_id %in% (traits_warriner |>
-                                    select(id) |>
-                                    pull()))
-  }
-  
-
-  data  |>
-     # THIS FUNCTION IS AT WORD LEVEL NOT DECADE! 
-
-    group_by(doc_id) |>
-    
-    summarise(
-      n = n(),
-      # Mean
-      mean_delta_nudge = mean(delta_nudge, na.rm =T ),
-      mean_delta_inject = mean(delta_inject, na.rm =T ),
-      
-      # SD
-      sd_nudge   = sd(delta_nudge, na.rm =T),
-      sd_inject   = sd(delta_inject, na.rm =T),
-      
-      # SE
-      se_nudge         = sd_nudge / sqrt(n),
-      se_inject         = sd_inject  / sqrt(n),
-      
-      # T 
-      t_nudge          = ifelse(n > 1,
-                                mean_delta_nudge / se_nudge,
-                                NA_real_),
-      t_inject      = ifelse(n > 1,
-                             mean_delta_inject / se_inject,
-                             NA_real_),
-      
-      df         = n - 1L,
-      
-      # P values
-      p_t_nudge        = ifelse(n > 1,
-                                2 * pt(-abs(t_nudge), df),
-                                NA_real_),
-      p_t_inject        = ifelse(n > 1,
-                                 2 * pt(-abs(t_inject), df),
-                                 NA_real_),
-      
-      
-      #Cohen's D:  mean of Δ divided by SD of Δ
-      d_z_nudge        = mean_delta_nudge / sd_nudge,
-      d_z_inject       = mean_delta_inject / sd_inject,
-      
-      # Confidence intervals
-      ci_low_nudge      = ifelse(n > 1,
-                                 mean_delta_nudge + qt(0.025, df) * se_nudge,
-                                 NA_real_),
-      ci_high_nudge    = ifelse(n > 1,
-                                mean_delta_nudge + qt(0.975, df) * se_nudge,
-                                NA_real_),
-      ci_low_inject      = ifelse(n > 1,
-                                  mean_delta_inject + qt(0.025, df) * se_inject,
-                                  NA_real_),
-      ci_high_inject     = ifelse(n > 1,
-                                  mean_delta_inject  + qt(0.975, df) * se_inject,
-                                  NA_real_),
-      
-      # Significance
-      
-      sign_nudge = case_when(
-        p_t_nudge < 0.001 ~ "***",
-        p_t_nudge < 0.01  ~ "**",
-        p_t_nudge < 0.05  ~ "*",
-        TRUE        ~ "No"
-      ),
-      sign_inject  = case_when(
-        p_t_inject < 0.001 ~ "***",
-        p_t_inject < 0.01  ~ "**",
-        p_t_inject < 0.05  ~ "*",
-        TRUE        ~ "No"
-      ),
-      .groups = "drop"
-      ) |>
-        left_join(raw_long |> select(doc_id,
-                                     word,
-                                     valence),
-                  by= "doc_id")|>
-        # Staying on word level - row = words
-        distinct()
-    
-}
-
-
-
-
-
-
-####----- GENERAL COMPARISON -----
-
-
-# NOTE: This we aren't not with the function because the grouping here is done by decade and not word:
-
-summ_t_wtnin_dcds_overall <- raw_long|>
-  #removing na  by delta_nudge 
-  
-  filter(!is.na(delta_nudge)) |>
-  
-  group_by(decade)|>
-  summarise(
-    n = n(),
-    # Mean
-    mean_delta_nudge = mean(delta_nudge, na.rm =T ),
-    mean_delta_inject = mean(delta_inject, na.rm =T ),
-    
-    # SD
-    sd_nudge   = sd(delta_nudge, na.rm =T),
-    sd_inject   = sd(delta_inject, na.rm =T),
-    
-    # SE
-    se_nudge         = sd_nudge / sqrt(n),
-    se_inject         = sd_inject  / sqrt(n),
-  
-    # T 
-    t_nudge          = ifelse(n > 1,
-                              mean_delta_nudge / se_nudge,
-                              NA_real_),
-    t_inject      = ifelse(n > 1,
-                           mean_delta_inject / se_inject,
-                           NA_real_),
-
-    df         = n - 1L,
-    
-    # P values
-    p_t_nudge        = ifelse(n > 1,
-                              2 * pt(-abs(t_nudge), df),
-                              NA_real_),
-    p_t_inject        = ifelse(n > 1,
-                              2 * pt(-abs(t_inject), df),
-                              NA_real_),
-    
-    
-    #Cohen's D:  mean of Δ divided by SD of Δ
-    d_z_nudge        = mean_delta_nudge / sd_nudge,
-    d_z_inject       = mean_delta_inject / sd_inject,
-    
-    # Confidence intervals
-    ci_low_nudge      = ifelse(n > 1,
-                               mean_delta_nudge + qt(0.025, df) * se_nudge,
-                               NA_real_),
-    ci_high_nudge    = ifelse(n > 1,
-                              mean_delta_nudge + qt(0.975, df) * se_nudge,
-                              NA_real_),
-    ci_low_inject      = ifelse(n > 1,
-                               mean_delta_inject + qt(0.025, df) * se_inject,
-                               NA_real_),
-    ci_high_inject     = ifelse(n > 1,
-                              mean_delta_inject  + qt(0.975, df) * se_inject,
-                              NA_real_),
-    
-    # Significance
-    
-    sign_nudge = case_when(
-      p_t_nudge < 0.001 ~ "***",
-      p_t_nudge < 0.01  ~ "**",
-      p_t_nudge < 0.05  ~ "*",
-      TRUE        ~ "No"
-    ),
-    sign_inject  = case_when(
-      p_t_inject < 0.001 ~ "***",
-      p_t_inject < 0.01  ~ "**",
-      p_t_inject < 0.05  ~ "*",
-      TRUE        ~ "No"
-    ),
-    .groups = "drop"
-  )
-
-summ_t_inject <- summ_t_wtnin_dcds_overall |>
-  select(-contains("_nudge"))
-# NOT SIGNIFICANT - 1870
-
-summ_t_nudge <- summ_t_wtnin_dcds_overall |>
-  select(-contains("_inject"))
-
-# NOT SIGNIFICANT - 1980
-
-
-```
-
-```{r GeneralComparison}
-kable (summ_t_wtnin_dcds_overall |> select(decade,
-                                        sign_nudge,
-                                        sign_inject,
-                                        p_t_nudge,
-                                        p_t_inject),
-       caption = "Significance test of the constructs throught the decades")
-```
-
-Overall, in most decades and across both DDR techniques, there is a significant difference in the association of words with *Macho* versus *Nice*. This mainly serves as a validation that our two constructs capture distinct semantics.
-
-![A win is a Win!](media/win.gif){fig-align="center" width="60%"}
-
-### ---- Q2-------
-
-**Across all decades, which words or traits are most associated with each DDR (testing significance once overall)?**
-
-```{r}
-words_t_summ<- compare_nice_macho_words (raw_long)
-  
-## ------  Top 20 Words------
-### ----- Macho --------------
-top_20_words_macho_nudge_overall <- words_t_summ |> 
-  # Sign only
-  filter(!sign_nudge == "No") |> 
-  # arranging to but the standardized delta across decades 
-  arrange(
-    desc(d_z_nudge)
-  ) |>  
-  
-  # fetching the to 20
-  slice_head(n = 20)     
-
-
-
-
-top_20_words_macho_inject_overall <- words_t_summ |> 
-  # Sign only
-  filter(!sign_inject == "No") |> 
-  # arranging to but the standardized delta across decades 
-  arrange(
-    desc(d_z_inject)
-  ) |>  
-  
-  # fetching the to 20
-  slice_head(n = 20)     
-
-### ----- Nice  --------------
-top_20_words_nice_nudge_overall <- words_t_summ |> 
-  # Sign only
-  filter(!sign_nudge == "No") |> 
-  # arranging to but the standardized delta across decades 
-  arrange(
-    # Notice this Time I want to get the lowest (minus) since delta is macho minus nice negative value indicate stronger association toward nice 
-    d_z_nudge
-  ) |>  
-  
-  # fetching the to 20
-  slice_head(n = 20)     
-
-top_20_words_nice_inject_overall <- words_t_summ |> 
-  # Sign only
-  filter(!sign_inject == "No") |> 
-  # arranging to but the standardized delta across decades 
-  arrange(
-    # Notice this Time I want to get the lowest (minus) since delta is macho minus nice negative value indicate stronger association toward nice 
-    d_z_inject
-  ) |>  
-  
-  # fetching the to 20
-  slice_head(n = 20)     
-
-```
-
-```{r WordsOverall, echo=FALSE}
-
-top_20_words_nice_nudge_overall
-
-
-nice_table_all_words<- data.frame(
-  cohenD_inject = top_20_words_nice_inject_overall$d_z_inject,
-  words_inject = top_20_words_nice_inject_overall$word,
-  cohenD_nudge = top_20_words_nice_nudge_overall$d_z_nudge,
-  word_nudge = top_20_words_nice_nudge_overall$word,
-  rank= c(1:10)
-
-)
-nice_table_all_words_fig<- kable(
-  nice_table_all_words,
-  caption = "Top 10 Nice (vs. Macho) Words",
-  digits = 3
-)
-
-macho_table_all_words<- data.frame(
-  cohenD_inject = top_20_words_macho_inject_overall$d_z_inject,
-  words_inject = top_20_words_macho_inject_overall$word,
-  cohenD_nudge = top_20_words_macho_nudge_overall$d_z_nudge,
-  word_nudge = top_20_words_macho_nudge_overall$word,
-  rank= c(1:10)
-
-)
-macho_table_all_words_fig<- kable(
-  macho_table_all_words,
-  caption = "Top 10 Macho (vs. Nice) Words",
-  digits = 3
-)
-
-```
-
-::::: columns
-::: {.column width="50%"}
-```{r}
-macho_table_all_words_fig
-```
-:::
-
-::: {.column width="50%"}
-```{r}
-nice_table_all_words_fig
-```
-:::
-:::::
-
-**Thought.** We should consider an inclusion criterion that retains only words appearing in ≥ \~5 decades, since many “Top-20” items occur in only a few decades.
-
-```{r thoughtAboutInclusion}
-table(top_20_words_nice_nudge_overall$n)
-# [1] 2 || 3 || 4 || 20 
-# [2] 12|| 2 || 1 || 5 
-table(top_20_words_macho_nudge_overall$n)
-# [1] 2 ||  3 ||  7 
-# [2]15 ||  4 ||  1 
-
-```
-
-For traits, there are two options:
-
-1.  Run the statistical test on the `traits_warriner` data frame so that the SD is calculated from trait-level deltas; or
-
-2.  Filter `words_t_summ` to only those in `traits_warriner`, which computes SD over the **entire** word list.
-
-Option (1) seems preferable.
-
-*Note:* In `warriner_COSINE_DDR_omit` we removed the terms used to create the DDRs, so none of those (*macho_guy_words* / *nice_guy_words*) should appear in the trait list.
-
-```{r}
-## ------  Top 10 traits------
-
-
-
-
-traits_t_summ<- compare_nice_macho_words(raw_long,only_traits = T)
-
-#### ------ Macho -------
-top_10_traits_macho_nudge_overall <- traits_t_summ |> 
-  # Sign only
-  filter(!sign_nudge == "No") |> 
-  # arranging to but the standardized delta across decades 
-  arrange(
-    desc(d_z_nudge)
-  ) |>  
-  
-  # fetching the top 10
-  slice_head(n = 10)    |> 
-  mutate(rank = row_number())
-
-
-top_10_traits_macho_inject_overall <- traits_t_summ |> 
-  # Sign only
-  filter(!sign_inject == "No") |> 
-  # arranging to but the standardized delta across decades 
-  arrange(
-    desc(d_z_inject)
-  ) |>  
-  
-  # fetching the top 10
-  slice_head(n = 10)        |> 
-  mutate(rank = row_number())
-
-### ----- Nice --------------
-top_10_traits_nice_nudge_overall <- traits_t_summ |> 
-  # Sign only
-  filter(!sign_nudge == "No") |> 
-  # arranging to but the standardized delta across decades 
-  arrange(
-    # Notice this Time I want to get the lowest (minus) since delta is macho minus nice negative value indicate stronger association toward nice 
-    d_z_nudge
-  ) |>  
-  
-  # fetching the to 20
-  slice_head(n = 10)       |> 
-  mutate(rank = row_number()) 
-
-top_10_traits_nice_inject_overall <- traits_t_summ |> 
-  # Sign only
-  filter(!sign_inject == "No") |> 
-  # arranging to but the standardized delta across decades 
-  arrange(
-    # Notice this Time I want to get the lowest (minus) since delta is macho minus nice negative value indicate stronger association toward nice 
-    d_z_inject
-  ) |>  
-  
-  # fetching the top 10
-  slice_head(n = 10)        |> 
-  mutate(rank = row_number())
-
-```
-
-**Insight.** The “small *n*” problem (traits appearing in only a few decade models) is less severe here; most traits appear more than 10 times overall across models.
-
-```{r}
-
-
-### ---- Tabling-----
-
-nice_table_all<- data.frame(
-  cohenD_inject = top_10_traits_nice_inject_overall$d_z_inject,
-  words_inject = top_10_traits_nice_inject_overall$word,
-  cohenD_nudge = top_10_traits_nice_nudge_overall$d_z_nudge,
-  word_nudge = top_10_traits_nice_nudge_overall$word,
-  rank= c(1:10)
-
-)
-nice_all_traits_table<- kable(
-  nice_table_all,
-  caption = "Top 10 Nice (vs. Macho) Traits",
-  digits = 3
-)
-
-macho_table_all<- data.frame(
-  cohenD_inject = top_10_traits_macho_inject_overall$d_z_inject,
-  words_inject = top_10_traits_macho_inject_overall$word,
-  cohenD_nudge = top_10_traits_macho_nudge_overall$d_z_nudge,
-  word_nudge = top_10_traits_macho_nudge_overall$word,
-  rank= c(1:10)
-
-)
-macho_table_all_table<- kable(
-  macho_table_all,
-  caption = "Top 10 Macho (vs. Nice) Traits",
-  digits = 3
-)
-
-```
-
-::::: columns
-::: {.column width="50%"}
-```{r}
-macho_table_all_table
-```
-:::
-
-::: {.column width="50%"}
-```{r}
-nice_all_traits_table
-```
-:::
-:::::
-
-### ---- Q3 ----
-
-**Over time, does the valence of the words/traits most associated with one construct (vs. the other) change?**
-
-For each decade, I identify the Top-10 most related words and compute their mean valence.
-
-To make interpretation more intuitive, I rescale valence from the original range to −4…+4, where negative values indicate negative valence and positive values indicate, well, positive valence.
-
-```{r}
-# --------- WITHIN DECADES------------ 
-
-#----- Q3 ----
-
-
-get_top_valence <- function(data,
-                            decade,
-                            is.nudge= F,
-                            only_traits = F,
-                            macho_vs = T) {
-  # Words or Traits ? 
-  if(only_traits){
-    data <-  data |> filter(doc_id %in% (traits_warriner |>
-                                           select(id) |>
-                                           pull()))
-  }
-  # Nudge or Inject
-  col <- if (is.nudge) "delta_nudge" else "delta_inject"
-  
-  
-  # If macho_vs is False meaning we want the words that are more associated to nice (vs macho) therefore assenting order of delta since delta is macho MINUS nice 
-  dir <- if (macho_vs) -1 else 1
-  data <- data[order(dir * data[[col]]), ]
-  data  |>
-    slice_head(n = 10) |>
-    summarise(
-      mean_valence = mean(valence, na.rm = TRUE),
-      decade = as.numeric(decade)
-    )
-}
-
-
-
-
-# the list of 20 df with deltas: warriner_COSINE_DDR_Diff
-
-### ------- Macho ------
-#  Words Inject
-
-valence_words_macho_decades_inject<-  map2_dfr(
-  warriner_COSINE_DDR_Diff, decades,
-  ~ get_top_valence(.x,
-                    decade = .y)
-)|>
-  mutate(mean_valence =  mean_valence -4)
-
-  # Words Nudge
-
-valence_words_macho_decades_nudge <- map2_dfr(
-  warriner_COSINE_DDR_Diff,
-  decades,
-  ~ get_top_valence(.x,
-                    decade = .y,
-                    is.nudge = TRUE)
-) |>
-  mutate(mean_valence =  mean_valence -4)
-
-  # Traits Inject
-valence_traits_macho_decades_inject <- map2_dfr(
-  warriner_COSINE_DDR_Diff,
-  decades,
-  ~ get_top_valence(.x,
-                    decade = .y,
-                    only_traits = TRUE)
-) |>
-  mutate(mean_valence =  mean_valence -4)
-
-  
-   # Traits nudge
-
-valence_traits_macho_decades_nudge <- map2_dfr(
-  warriner_COSINE_DDR_Diff,
-  decades,
-  ~ get_top_valence(.x,
-                    decade = .y,
-                    only_traits = TRUE,
-                    is.nudge = TRUE)
-) |>
-  mutate(mean_valence =  mean_valence -4)
-  
-## -------- Nice 
-#  Words Inject
-
-valence_words_nice_decades_inject<-  map2_dfr(
-  warriner_COSINE_DDR_Diff, decades,
-  ~ get_top_valence(.x,
-                    decade = .y,
-                    macho_vs = F)
-) |>
-  mutate(mean_valence =  mean_valence -4)
-
-# Words Nudge
-valence_words_nice_decades_nudge <- map2_dfr(
-  warriner_COSINE_DDR_Diff,
-  decades,
-  ~ get_top_valence(.x,
-                    decade = .y,
-                    is.nudge = TRUE,
-                    macho_vs = F)
-) |>
-  mutate(mean_valence =  mean_valence -4)
-
-# Traits Inject
-valence_traits_nice_decades_inject <- map2_dfr(
-  warriner_COSINE_DDR_Diff,
-  decades,
-  ~ get_top_valence(.x,
-                    decade = .y,
-                    only_traits = TRUE,
-                    macho_vs = F)
-) |>
-  mutate(mean_valence =  mean_valence -4)
-
-# Traits nudge
-
-valence_traits_nice_decades_nudge <- map2_dfr(
-  warriner_COSINE_DDR_Diff,
-  decades,
-  ~ get_top_valence(.x,
-                    decade = .y,
-                    only_traits = TRUE,
-                    is.nudge = TRUE,
-                    macho_vs = F)
-) |>
-  mutate(mean_valence =  mean_valence -4)
-
-
-
-
-
-
-
-
-
-
-# ----- Modeling Macho ----
-
-# Word inject - Macho 
-lm_macho_words_inject <- lm(mean_valence ~ decade, data = valence_words_macho_decades_inject)
-
-# Word nudge - Macho 
-lm_macho_words_nudge <- lm(mean_valence ~ decade, data = valence_words_macho_decades_nudge)
-
-# Trait inject - Macho 
-lm_macho_traits_inject <- lm(mean_valence ~ decade, data = valence_traits_macho_decades_inject)
-
-# Trait nudge - Macho 
-lm_macho_traits_nudge <- lm(mean_valence ~ decade, data = valence_traits_macho_decades_nudge)
-
-
-
-# --------- Modeling Nice -------- 
-
-# Word inject - Nice 
-lm_nice_words_inject <- lm(mean_valence ~ decade, data = valence_words_nice_decades_inject)
-
-# Word nudge - Nice
-lm_nice_words_nudge <- lm(mean_valence ~ decade, data = valence_words_nice_decades_nudge)
-
-# Trait inject - Nice 
-lm_nice_traits_inject <- lm(mean_valence ~ decade, data = valence_traits_nice_decades_inject)
-
-# Trait nudge -Nice 
-lm_nice_traits_nudge <- lm(mean_valence ~ decade, data = valence_traits_nice_decades_nudge)
-
-
-
-```
-
-```{r Plots, echo = FALSE}
-sig_subtitle <- function(df) {
-  mod <- lm(mean_valence ~ decade, data = df)
-  b <- coef(mod)[2]
-  p <- summary(mod)$coefficients[2, 4]
-  sig <- ifelse(p < 0.05, "*", "n.s.")
-  sprintf("b = %.2f, p = %.3f (%s)", b, p, sig)
-}
-# Example: Create 4 ggplots (replace with your real ones)
-p1 <- ggplot(valence_words_macho_decades_inject, aes(decade, mean_valence)) +
-  geom_line(color = "#f8766d") + 
-  geom_smooth(method = "lm", se = T) +
-  labs(title = "Macho - Words Inject",
-      subtitle =sig_subtitle(valence_words_macho_decades_inject)
-) +
-  theme_minimal(base_size = 7)
-
-p2 <- ggplot(valence_words_macho_decades_nudge, aes(decade, mean_valence)) +
-  geom_line(color = "#00bfc4") + 
-  geom_smooth(method = "lm", se = T) +
-  labs(title = "Macho - Words Nudge",
-      subtitle =sig_subtitle(valence_words_macho_decades_nudge)
-      ) +
-  theme_minimal(base_size = 7)
-
-p3 <- ggplot(valence_words_nice_decades_inject, aes(decade, mean_valence)) +
-  geom_line(color = "#7cae00") + 
-  geom_smooth(method = "lm", se = T) +
-  labs(title = "Nice - Words Inject",
-       subtitle =sig_subtitle(valence_words_nice_decades_inject)
-  ) +
-  theme_minimal(base_size = 7)
-
-p4 <- ggplot(valence_words_nice_decades_nudge, aes(decade, mean_valence)) +
-  geom_line(color = "#c77cff") + 
-  geom_smooth(method = "lm", se = T) +
-  labs(title = "Nice - Words Nudge",
-       subtitle =sig_subtitle(valence_words_nice_decades_nudge)
-  ) +
-  theme_minimal(base_size = 7)
-
-# Traits: 
-
-p5 <- ggplot(valence_traits_macho_decades_inject, aes(decade, mean_valence)) +
-  geom_line(color = "#f8766d") + 
-  geom_smooth(method = "lm", se = T) +
-  labs(title = "Macho - Words Inject",
-       subtitle=sig_subtitle(valence_traits_macho_decades_inject)
-) +
-  theme_minimal(base_size = 7)
-
-p6 <- ggplot(valence_traits_macho_decades_nudge, aes(decade, mean_valence)) +
-  geom_line(color = "#00bfc4") + 
-  geom_smooth(method = "lm", se = T) +
-  labs(title = "Macho - Words Nudge",
-       subtitle=sig_subtitle(valence_traits_macho_decades_nudge)) +
-  theme_minimal(base_size = 7)
-
-p7 <- ggplot(valence_traits_nice_decades_inject, aes(decade, mean_valence)) +
-  geom_line(color = "#7cae00") + 
-  geom_smooth(method = "lm", se = T) +
-  labs(title = "Nice - Words Inject",
-       subtitle=sig_subtitle(valence_traits_nice_decades_inject)) +
-  theme_minimal(base_size = 7)
-
-p8 <- ggplot(valence_traits_nice_decades_nudge, aes(decade, mean_valence)) +
-  geom_line(color = "#c77cff") + 
-  geom_smooth(method = "lm", se = T) +
-  labs(title = "Nice - Words Nudge",
-        subtitle=sig_subtitle(valence_traits_nice_decades_nudge)) +
-  theme_minimal(base_size = 7)
-```
-
-![Voila!!](media/presentation.gif){fig-align="center" width="60%"}
-
-```{r FinalPlotWords, warning=FALSE, fig.width=12, fig.align='center', fig.fullwidth=TRUE, echo=FALSE}
-# ---- Combine 4 plots in a 2×2 grid ----
-library(patchwork) 
-(p1 | p2) /
-(p3 | p4) +
-  plot_annotation(
-    title = "Valence of Top 10 Words Across Decades",
-    subtitle = "Linear trends by condition (Inject vs Nudge)"
-  )
-```
-
-```{r FinalPlotTraits, warning=FALSE, fig.width=12, fig.align='center', fig.fullwidth=TRUE,echo = FALSE}
-# ---- Combine 4 plots in a 2×2 grid ----
-library(patchwork) 
-(p5 | p6) /
-(p7 | p8) +
-  plot_annotation(
-    title = "Valence of Top 10 Traits Across Decades",
-    subtitle = "Linear trends by condition (Inject vs Nudge)"
-  )
-```
-
-# Attractiveness
+## Attractiveness
 
 In this section, I constructed a decade-specific Attractiveness DDRs and then examine how semantically close the macho and nice representations are to attractiveness across time.
 
 The goal is to quantify how the semantic association between Masochistic and gentle masculinity and attractiveness has shifted across historical decades.
 
-## Word list
+### Word list
 
 We begin by specifying a set of core adjectives that directly express attractiveness (e.g., attractive, beautiful, handsome, sexy, etc.). Two versions are created:
 
@@ -1313,7 +528,7 @@ For each historical decade represented in the ENGall embedding model, we compute
 **Inject condition**
 
 1.  Retrieve the embeddings of all attractiveness words + male anchors.
-2.  Compute their **average embedding**, yielding the *Attractiveness Injected DDR* for that decade.
+2.  Compute their **average embedding**, yielding the *Attractiveness Injected DDR* for that *decade*.
 
 **Nudge condition**
 
@@ -1323,63 +538,82 @@ For each historical decade represented in the ENGall embedding model, we compute
 
 Each DDR represents a *single semantic vector* summarizing the meaning of attractiveness in that decade.
 
-```{r Attractiveness DDR }
-# ---- setting the ENGall model to fit 'embedplyr' workflow
-## ----------- Attractiveness DDR (with injection) ----------
-Attractiveness_DDR_injected_by_decade <- list()
-for (i in seq_along(ENGall_model)) {
-  
-  Attractiveness_DDR_injected_by_decade[[i]] <- predict(ENGall_model[[i]], attractiveness_words_injected)|> 
-    average_embedding()
-}
-names(Attractiveness_DDR_injected_by_decade) <- decades
-## ----------- Attractiveness DDR Nudge  ----------
-Attractiveness_DDR_nudge_by_decade <- list()
-for (i in seq_along(ENGall_model)) {
-  Attractiveness_DDR_nudge_by_decade[[i]] <- predict(ENGall_model[[i]], attractiveness_words)|>
-  average_embedding() |>
-    masculinity_nudge(E = ENGall_model[[i]])
-}
-names(Attractiveness_DDR_nudge_by_decade) <- decades
-```
 
-## Cosine Similarity from Attractiveness DDRs
+### Cosine Similarity from Attractiveness DDRs
+
+In the same chulk I will create the DDR for attractiveness and the cos sim from our Macho and Nice DDRS 
+
+
 
 ```{r Cosine from Attractiveness DDR}
-# Helper function to compute cosine similarity from Attractiveness DDRs
+cosine_from_attractiveness <- lapply(seq_along(ENGall_model), function(i) {
 
-# -------------------------------
-# Helper: pure cosine similarity
-# -------------------------------
-cosine_sim <- function(v1, v2) {
-  sum(v1 * v2) / (sqrt(sum(v1^2)) * sqrt(sum(v2^2)))
-}
-  
-# List to store results
-cosine_from_attractiveness_nudge <- list()
-cosine_from_attractiveness_inject <- list()
-for (i in seq_along(ENGall_model)) {
-  
-  # computing the Cosim - using the built in function textSimilarity(v1, v2)
-  # Nudge:
-  cosine_from_attractiveness_nudge[[i]] <- data.frame(
-    sims_macho_attract=cosine_sim(Macho_DDR_nudge_by_decade[[i]],Attractiveness_DDR_nudge_by_decade[[i]]),
-    sims_nice_attract=
-    cosine_sim(Nice_DDR_nudge_by_decade[[i]],
-                             Attractiveness_DDR_nudge_by_decade[[i]]),
-    i_decade= i
-  )
+  embeddings <- ENGall_model[[i]]
+  embeddings <- embeddings[magnitude(embeddings) != 0, ]
 
-  # Inject:
-  cosine_from_attractiveness_inject[[i]] <- data.frame(
-    sims_macho_attract=cosine_sim(Macho_DDR_injected_by_decade[[i]],Attractiveness_DDR_injected_by_decade[[i]]),
-    sims_nice_attract=cosine_sim(Nice_DDR_injected_by_decade[[i]],
-                             Attractiveness_DDR_injected_by_decade[[i]]),
-    i_decade= i
+  # ---------- NUDGE ----------
+  nice_ddr_nudge  <- masculinity_nudge(
+    ddr_vec = average_embedding(predict(embeddings, nice_guy_words)),
+    E = embeddings
   )
-}
-names(cosine_from_attractiveness_nudge) <- decades
-names(cosine_from_attractiveness_inject) <- decades
+  macho_ddr_nudge <- masculinity_nudge(
+    ddr_vec = average_embedding(predict(embeddings, macho_guy_words)),
+    E = embeddings
+  )
+  attract_ddr_nudge <- masculinity_nudge(
+    ddr_vec = average_embedding(predict(embeddings, attractiveness_words)),
+    E = embeddings
+  )
+  # ---------- DDRs: INJECT ----------
+  nice_ddr_inject  <- average_embedding(predict(embeddings, nice_guy_words_injected))
+  
+  macho_ddr_inject <- average_embedding(predict(embeddings, macho_guy_words_injected))
+  
+  attract_ddr_inject <- average_embedding(predict(embeddings, attractiveness_words_injected))
+  
+  # Put DDRs into a tiny "embedding space" (3 rows × 300 dims)
+  ddr_space<- rbind(
+    #nudge
+    macho_ddr_nudge = as.numeric(macho_ddr_nudge),
+    nice_ddr_nudge  = as.numeric(nice_ddr_nudge),
+    attract_ddr_nudge  = as.numeric(attract_ddr_nudge),
+    #inject
+    macho_ddr_inject = as.numeric(macho_ddr_inject),
+    nice_ddr_inject  = as.numeric(nice_ddr_inject),
+    attract_ddr_inject  = as.numeric(attract_ddr_inject)
+  )
+  ddr_space <- embedplyr::as.embeddings(ddr_space)
+  # Cosine of each DDR row to the attractiveness DDR
+  
+  sims <- ddr_space |>
+    get_sims(
+      list("macho_vs_nice_nudge" = list(pos = macho_ddr_nudge,
+                                        neg = nice_ddr_nudge),
+           "macho_vs_nice_inject"   = list(pos = macho_ddr_inject,
+                                           neg = nice_ddr_inject)
+      ),
+      method = "anchored"
+    )
+
+
+  # ---------- Return one tidy row per decade ----------
+  
+  
+  tibble::tibble(
+    i_decade = i,
+    decade   = decades[i],
+    # since the computation is done row by row - I would only extract the one where the anchor is regarded to attractive ddr 
+    attract_on_macho_vs_nice_nudge =
+      sims$macho_vs_nice_nudge[sims$doc_id == "attract_ddr_nudge"],
+    
+    attract_on_macho_vs_nice_inject =
+      sims$macho_vs_nice_inject[sims$doc_id == "attract_ddr_inject"]
+  )
+  
+  
+})
+
+cosine_from_attractiveness <- bind_rows(cosine_from_attractiveness)
 
 ```
 
