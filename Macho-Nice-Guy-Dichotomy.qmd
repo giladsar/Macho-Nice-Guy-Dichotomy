@@ -70,7 +70,6 @@ library(purrr)
 library(sweater)
 library(quanteda.textmodels)
 library(quanteda)
-library(text)
 library(embedplyr)
 library(knitr)
 ```
@@ -390,9 +389,11 @@ length(macho_guy_words_injected)
 ```
 
 # DDR
-I will next construct the Macho and Nice Guy semantic contrasts (DDRs). To do so, I will implement a  function that iterates over the word-embedding models by decade. When the nudge option is set to TRUE, the function will first construct a masculinity-nudge axis. It will then compute the DDRs for each guy-type construct.
+
+I will next construct the Macho and Nice Guy semantic contrasts (DDRs). To do so, I will implement a function that iterates over the word-embedding models by decade. When the nudge option is set to TRUE, the function will first construct a masculinity-nudge axis. It will then compute the DDRs for each guy-type construct.
 
 Following Luis’ recommendation, rather than manually computing the difference between Macho and Nice Guy DDRs, I will use the internal anchored method implemented in get_sims. In this specification, a single similarity variable is produced, capturing relative proximity to the Macho versus Nice Guy anchors. Positive values indicate greater semantic association with the Macho prototype, whereas negative values indicate greater association with the Nice Guy prototype.
+
 ```{r DDR }
 
 # --- 
@@ -433,7 +434,7 @@ names(decade_scores) <- decades
 
 ```
 
-## Warriner List 
+## Warriner List
 
 I'll keep **only** the words in the model that have valence scores—i.e., those appearing in Warriner.
 
@@ -538,12 +539,9 @@ For each historical decade represented in the ENGall embedding model, we compute
 
 Each DDR represents a *single semantic vector* summarizing the meaning of attractiveness in that decade.
 
-
 ### Cosine Similarity from Attractiveness DDRs
 
-In the same chulk I will create the DDR for attractiveness and the cos sim from our Macho and Nice DDRS 
-
-
+In the same chulk I will create the DDR for attractiveness and the cos sim from our Macho and Nice DDRS
 
 ```{r Cosine from Attractiveness DDR}
 cosine_from_attractiveness <- lapply(seq_along(ENGall_model), function(i) {
@@ -613,51 +611,28 @@ cosine_from_attractiveness <- lapply(seq_along(ENGall_model), function(i) {
   
 })
 
-cosine_from_attractiveness <- bind_rows(cosine_from_attractiveness)
+cosine_from_attractiveness <- bind_rows(cosine_from_attractiveness) |> 
+  select(-i_decade)
 
 ```
 
-```{r}
+```{r AttractivePlot}
 # Binding the results into a data frame for plotting
-cosine_attract_nudge_df <- bind_rows(cosine_from_attractiveness_nudge) |>
-  mutate(
-    decade = decades[i_decade]
-  ) |>
-  select(-i_decade)
-cosine_attract_inject_df <- bind_rows(cosine_from_attractiveness_inject) |>
-  mutate(
-    decade = decades[i_decade]
-  ) |>
-  select(-i_decade)
+
 
 #write a ggplot to show the results
 # Nudge plot
-nudge_attr_plot <- ggplot(cosine_attract_nudge_df, aes(x = decade)) +
-  geom_line(aes(y = sims_macho_attract, color = "Macho")) +
-  geom_line(aes(y = sims_nice_attract, color = "Nice")) +
+nudge_attr_plot <- ggplot(cosine_from_attractiveness, aes(x = decade)) +
+  geom_line(aes(y = attract_on_macho_vs_nice_inject, color = "Inject")) +
+  geom_line(aes(y = attract_on_macho_vs_nice_nudge, color = "Nudge")) +
   labs(
-    title = "Cosine Similarity from Attractiveness DDR (Nudge)",
+    title = "Cosine Similarity from Attractiveness DDR",
     x = "Decade",
-    y = "Cosine Similarity",
-    color = "Construct"
+    y = "Delta (Macho-Nice)",
+    color = "Approrach"
   ) +
-  theme_minimal()
-# Inject plot
-inject_attr_plot <- ggplot(cosine_attract_inject_df, aes(x = decade)) +
-  geom_line(aes(y = sims_macho_attract, color = "Macho")) +
-  geom_line(aes(y = sims_nice_attract, color = "Nice")) +
-  labs(
-    title = "Cosine Similarity from Attractiveness DDR (Inject)",
-    x = "Decade",
-    y = "Cosine Similarity",
-    color = "Construct"
-  ) +
-  theme_minimal()
-
- combied_plot<- nudge_attr_plot + inject_attr_plot +
-  plot_layout(ncol = 1, guides = "collect") &
-  theme(legend.position = "bottom")
- 
+  theme_minimal() 
+  
 ```
 
 ```{r AttractivePlotDDRs}
@@ -672,51 +647,9 @@ inject_attr_plot <- ggplot(cosine_attract_inject_df, aes(x = decade)) +
 #| warning: false
 
 
- combied_plot
+ nudge_attr_plot
  
 
 ```
 
-```{r StatisticalTestAttractiveness}
-# Nudge t-test  
-tt_nudge <- t.test(cosine_attract_nudge_df$sims_macho_attract,
-                    cosine_attract_nudge_df$sims_nice_attract,
-                    alternative = "two.sided")
-if(tt_nudge$p.value < 0.05) {
-  print("Attractiveness Nudge - supports of H1")
-} else {
-  print("Attractiveness Nudge - supports of H0")
-}
-# Inject t-test
-tt_inject <- t.test(cosine_attract_inject_df$sims_macho_attract,
-                  cosine_attract_inject_df$sims_nice_attract,
-                  alternative = "two.sided")
-if(tt_inject$p.value < 0.05) {
-  print("Attractiveness Inject - supports of H1")
-} else {
-  print("Attractiveness Inject - supports of H0")
-}
-
-# show the resultin apa table 
-attractiveness_cosim_table <- data.frame(
-  DDR_Type = c("Nudge", "Inject"),
-  t_value = c(tt_nudge$statistic, tt_inject$statistic),
-  df = c(tt_nudge$parameter, tt_inject$parameter),
-  p_value = c(tt_nudge$p.value, tt_inject$p.value),
-  mean_macho_cosim = c(mean(cosine_attract_nudge_df$sims_macho_attract),
-                       mean(cosine_attract_inject_df$sims_macho_attract)),
-  mean_nice_cosim = c(mean(cosine_attract_nudge_df$sims_nice_attract),
-                      mean(cosine_attract_inject_df$sims_nice_attract))
-)
-kable(
-  attractiveness_cosim_table,
-  caption = "T-test results for Cosine Similarity from Attractiveness DDR",
-  digits = 3
-)
-
-
-```
-
-Across decades, the Nice DDR was consistently more semantically associated with attractiveness than the Macho DDR. In the **nudge condition**, Nice DDRs showed significantly higher cosine similarity to attractiveness than Macho DDRs, *t*(34.72) = −2.10, *p* = .043 (M_nice = .647, M_macho = .606). This pattern was even stronger in the **inject condition**, where Nice DDRs again exhibited greater proximity to attractiveness, *t*(35.97) = −5.10, *p* \< .001 (M_nice = .581, M_macho = .482).
-
-Together, these results indicate that across historical decades, **the semantic space positions “nice” traits closer to attractiveness than “macho” traits**, under both nudge and inject paradigms.
+### Analysis
