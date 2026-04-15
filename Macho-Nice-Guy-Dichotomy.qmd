@@ -62,7 +62,7 @@ Nevertheless, following Tessa et al.’s guidance, applying **orthogonal Procrus
 
 ```{r loadPackages, echo = FALSE, message=FALSE}
 # ----------------------------------------------------
-# Packages
+#Packages
 library(tidyverse)
 library(vroom)       # fast reading of large txts
 library(stringr)
@@ -72,6 +72,8 @@ library(quanteda.textmodels)
 library(quanteda)
 library(embedplyr)
 library(knitr)
+
+
 ```
 
 ```{r Datapaths, include=FALSE}
