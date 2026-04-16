@@ -398,41 +398,57 @@ Following Luis’ recommendation, rather than manually computing the difference 
 
 ```{r DDR }
 
-# --- 
+Macho_DDR_nudge_by_decade <- vector("list", length(ENGall_model))
+Nice_DDR_nudge_by_decade <- vector("list", length(ENGall_model))
+Macho_DDR_injected_by_decade <- vector("list", length(ENGall_model))
+Nice_DDR_injected_by_decade <- vector("list", length(ENGall_model))
+decade_scores <- vector("list", length(ENGall_model))
 
-
-decade_scores <- lapply(ENGall_model, function(embeddings){
-  embeddings <- embeddings[magnitude(embeddings) != 0,]
+for (i in seq_along(ENGall_model)) {
+  embeddings <- ENGall_model[[i]]
+  embeddings <- embeddings[magnitude(embeddings) != 0, ]
 
   # Nudged approach
-  nice_guy_ddr_nudge <- masculinity_nudge(ddr_vec = average_embedding(predict(embeddings,
-                                                                              nice_guy_words)),
-                                          E = embeddings)
+  Nice_DDR_nudge_by_decade[[i]] <- masculinity_nudge(
+    ddr_vec = average_embedding(predict(embeddings, nice_guy_words)),
+    E = embeddings
+  )
   
-  macho_guy_ddr_nudge <- masculinity_nudge(ddr_vec = average_embedding(predict(embeddings, macho_guy_words)),
-                                           E =embeddings ) 
+  Macho_DDR_nudge_by_decade[[i]] <- masculinity_nudge(
+    ddr_vec = average_embedding(predict(embeddings, macho_guy_words)),
+    E = embeddings
+  )
   
   # Inject approach
+  Nice_DDR_injected_by_decade[[i]] <- average_embedding(
+    predict(embeddings, nice_guy_words_injected)
+  )
+  Macho_DDR_injected_by_decade[[i]] <- average_embedding(
+    predict(embeddings, macho_guy_words_injected)
+  )
   
-  nice_guy_ddr_inject  <- average_embedding(predict(embeddings, nice_guy_words_injected))
-  macho_guy_ddr_inject <- average_embedding(predict(embeddings, macho_guy_words_injected))
-  
-  embeddings |> 
+  decade_scores[[i]] <- embeddings |> 
     get_sims(
-      list("macho_vs_nice_nudge" = list(pos = macho_guy_ddr_nudge,
-                                        neg = nice_guy_ddr_nudge),
-           "macho_vs_nice_inject"   = list(pos = macho_guy_ddr_inject,
-                                           neg = nice_guy_ddr_inject)
+      list(
+        "macho_vs_nice_nudge" = list(
+          pos = Macho_DDR_nudge_by_decade[[i]],
+          neg = Nice_DDR_nudge_by_decade[[i]]
+        ),
+        "macho_vs_nice_inject" = list(
+          pos = Macho_DDR_injected_by_decade[[i]],
+          neg = Nice_DDR_injected_by_decade[[i]]
+        )
       ),
       method = "anchored"
     )
-})
+}
 
-# Make it readable 
+# Make it readable
+names(Macho_DDR_nudge_by_decade) <- decades
+names(Nice_DDR_nudge_by_decade) <- decades
+names(Macho_DDR_injected_by_decade) <- decades
+names(Nice_DDR_injected_by_decade) <- decades
 names(decade_scores) <- decades
-
-
-
 
 ```
 
@@ -492,9 +508,9 @@ warriner_scores_omit <- lapply(warriner_with_scores, function(df) {
 
 ## Attractiveness
 
-In this section, I constructed a decade-specific Attractiveness DDRs and then examine how semantically close the macho and nice representations are to attractiveness across time.
+This section now intentionally keeps **both** Attractiveness workflows in the same document. The original workflow from `main` computes two pairwise cosine similarities: Attractiveness-to-Macho and Attractiveness-to-Nice. The `anlysis-after-opt` workflow computes a single anchored contrast with `get_sims(..., method = "anchored")`.
 
-The goal is to quantify how the semantic association between Masochistic and gentle masculinity and attractiveness has shifted across historical decades.
+These should point in the same conceptual direction. Because they currently do not produce identical results, I keep them as separate sections and add an inspection table at the end.
 
 ### Word list
 
@@ -504,9 +520,9 @@ We begin by specifying a set of core adjectives that directly express attractive
 
 -   Inject version: includes the attractiveness descriptors plus the male anchor words, ensuring a stronger masculine reference frame in the embedding space.
 
-This parallels the earlier (Macho/Nice) pipeline for consistency.
+This parallels the earlier Macho/Nice pipeline for consistency.
 
-```{r}
+```{r attractiveness-words}
 attractiveness_words <- c(
   "attractive",
   "beautiful",
@@ -520,10 +536,8 @@ attractiveness_words <- c(
   "appealing"
 )
 
-# injected
-attractiveness_words_injected <- attractiveness_words|>
+attractiveness_words_injected <- attractiveness_words |>
   c(male_anchors)
-
 ```
 
 For each historical decade represented in the ENGall embedding model, we compute an Attractiveness DDR using the same procedure applied previously to Macho and Nice:
@@ -531,127 +545,310 @@ For each historical decade represented in the ENGall embedding model, we compute
 **Inject condition**
 
 1.  Retrieve the embeddings of all attractiveness words + male anchors.
-2.  Compute their **average embedding**, yielding the *Attractiveness Injected DDR* for that *decade*.
+2.  Compute their **average embedding**, yielding the *Attractiveness Injected DDR* for that decade.
 
 **Nudge condition**
 
 1.  Retrieve the embeddings of the attractiveness adjectives.
 2.  Average them to obtain the raw *Attractiveness Nudge DDR*.
-3.  Apply the **`masculinity_nudge()`** transformation to align the DDR with the nudge paradigm used for the Macho/Nice DDRs
+3.  Apply the **`masculinity_nudge()`** transformation to align the DDR with the nudge paradigm used for the Macho/Nice DDRs.
 
-Each DDR represents a *single semantic vector* summarizing the meaning of attractiveness in that decade.
+```{r attractiveness-ddrs}
+Attractiveness_DDR_injected_by_decade <- vector("list", length(ENGall_model))
+Attractiveness_DDR_nudge_by_decade <- vector("list", length(ENGall_model))
 
-### Cosine Similarity from Attractiveness DDRs
-
-In the same chulk I will create the DDR for attractiveness and the cos sim from our Macho and Nice DDRS
-
-```{r Cosine from Attractiveness DDR}
-cosine_from_attractiveness <- lapply(seq_along(ENGall_model), function(i) {
-
+for (i in seq_along(ENGall_model)) {
   embeddings <- ENGall_model[[i]]
   embeddings <- embeddings[magnitude(embeddings) != 0, ]
+  
+  Attractiveness_DDR_injected_by_decade[[i]] <- predict(
+    embeddings,
+    attractiveness_words_injected
+  ) |>
+    average_embedding()
+  
+  Attractiveness_DDR_nudge_by_decade[[i]] <- predict(
+    embeddings,
+    attractiveness_words
+  ) |>
+    average_embedding() |>
+    masculinity_nudge(E = embeddings)
+}
 
-  # ---------- NUDGE ----------
-  nice_ddr_nudge  <- masculinity_nudge(
-    ddr_vec = average_embedding(predict(embeddings, nice_guy_words)),
-    E = embeddings
+names(Attractiveness_DDR_injected_by_decade) <- decades
+names(Attractiveness_DDR_nudge_by_decade) <- decades
+```
+
+### Original pairwise approach from main
+
+This reproduces the original logic: separately estimate the cosine similarity between Attractiveness and Macho, and between Attractiveness and Nice. A higher line means stronger proximity to Attractiveness. The implied Macho-vs-Nice difference is computed afterward as `Macho - Nice`.
+
+```{r attractiveness-pairwise-cosine}
+cosine_sim <- function(v1, v2) {
+  v1 <- as.numeric(v1)
+  v2 <- as.numeric(v2)
+  sum(v1 * v2) / (sqrt(sum(v1^2)) * sqrt(sum(v2^2)))
+}
+
+cosine_from_attractiveness_nudge <- vector("list", length(ENGall_model))
+cosine_from_attractiveness_inject <- vector("list", length(ENGall_model))
+
+for (i in seq_along(ENGall_model)) {
+  cosine_from_attractiveness_nudge[[i]] <- tibble(
+    sims_macho_attract = cosine_sim(
+      Macho_DDR_nudge_by_decade[[i]],
+      Attractiveness_DDR_nudge_by_decade[[i]]
+    ),
+    sims_nice_attract = cosine_sim(
+      Nice_DDR_nudge_by_decade[[i]],
+      Attractiveness_DDR_nudge_by_decade[[i]]
+    ),
+    i_decade = i
   )
-  macho_ddr_nudge <- masculinity_nudge(
-    ddr_vec = average_embedding(predict(embeddings, macho_guy_words)),
-    E = embeddings
+
+  cosine_from_attractiveness_inject[[i]] <- tibble(
+    sims_macho_attract = cosine_sim(
+      Macho_DDR_injected_by_decade[[i]],
+      Attractiveness_DDR_injected_by_decade[[i]]
+    ),
+    sims_nice_attract = cosine_sim(
+      Nice_DDR_injected_by_decade[[i]],
+      Attractiveness_DDR_injected_by_decade[[i]]
+    ),
+    i_decade = i
   )
-  attract_ddr_nudge <- masculinity_nudge(
-    ddr_vec = average_embedding(predict(embeddings, attractiveness_words)),
-    E = embeddings
+}
+
+names(cosine_from_attractiveness_nudge) <- decades
+names(cosine_from_attractiveness_inject) <- decades
+
+cosine_attract_nudge_df <- bind_rows(cosine_from_attractiveness_nudge) |>
+  mutate(decade = decades[i_decade]) |>
+  select(-i_decade)
+
+cosine_attract_inject_df <- bind_rows(cosine_from_attractiveness_inject) |>
+  mutate(decade = decades[i_decade]) |>
+  select(-i_decade)
+
+pairwise_attractiveness_df <- bind_rows(
+  cosine_attract_nudge_df |>
+    mutate(approach = "Nudge"),
+  cosine_attract_inject_df |>
+    mutate(approach = "Inject")
+) |>
+  mutate(pairwise_delta = sims_macho_attract - sims_nice_attract)
+```
+
+```{r attractiveness-pairwise-plot, echo=FALSE, fig.width=10, fig.height=7, fig.align='center'}
+pairwise_attractiveness_long <- pairwise_attractiveness_df |>
+  pivot_longer(
+    cols = c(sims_macho_attract, sims_nice_attract),
+    names_to = "construct",
+    values_to = "cosine_similarity"
+  ) |>
+  mutate(
+    construct = recode(
+      construct,
+      sims_macho_attract = "Macho",
+      sims_nice_attract = "Nice"
+    )
   )
-  # ---------- DDRs: INJECT ----------
-  nice_ddr_inject  <- average_embedding(predict(embeddings, nice_guy_words_injected))
+
+ggplot(pairwise_attractiveness_long, aes(x = decade, y = cosine_similarity, color = construct)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.6) +
+  facet_wrap(~ approach, ncol = 1) +
+  labs(
+    title = "Original pairwise cosine approach",
+    x = "Decade",
+    y = "Cosine similarity to Attractiveness",
+    color = "Construct"
+  ) +
+  theme_minimal()
+```
+
+```{r attractiveness-pairwise-test}
+pairwise_attractiveness_tests <- bind_rows(
+  {
+    tt <- t.test(
+      cosine_attract_nudge_df$sims_macho_attract,
+      cosine_attract_nudge_df$sims_nice_attract,
+      alternative = "two.sided"
+    )
+    tibble(
+      approach = "Nudge",
+      t_value = unname(tt$statistic),
+      df = unname(tt$parameter),
+      p_value = tt$p.value,
+      mean_macho_cosim = mean(cosine_attract_nudge_df$sims_macho_attract),
+      mean_nice_cosim = mean(cosine_attract_nudge_df$sims_nice_attract),
+      mean_pairwise_delta = mean(
+        cosine_attract_nudge_df$sims_macho_attract -
+          cosine_attract_nudge_df$sims_nice_attract
+      )
+    )
+  },
+  {
+    tt <- t.test(
+      cosine_attract_inject_df$sims_macho_attract,
+      cosine_attract_inject_df$sims_nice_attract,
+      alternative = "two.sided"
+    )
+    tibble(
+      approach = "Inject",
+      t_value = unname(tt$statistic),
+      df = unname(tt$parameter),
+      p_value = tt$p.value,
+      mean_macho_cosim = mean(cosine_attract_inject_df$sims_macho_attract),
+      mean_nice_cosim = mean(cosine_attract_inject_df$sims_nice_attract),
+      mean_pairwise_delta = mean(
+        cosine_attract_inject_df$sims_macho_attract -
+          cosine_attract_inject_df$sims_nice_attract
+      )
+    )
+  }
+)
+
+kable(
+  pairwise_attractiveness_tests,
+  caption = "Original pairwise cosine tests from main",
+  digits = 3
+)
+```
+
+### Anchored contrast approach from anlysis-after-opt
+
+This approach builds a small DDR space for each decade and asks `get_sims()` for the anchored Macho-vs-Nice contrast. Positive values mean Attractiveness is closer to Macho than to Nice; negative values mean Attractiveness is closer to Nice than to Macho.
+
+```{r attractiveness-anchored-cosine}
+attractiveness_anchored_df <- lapply(seq_along(ENGall_model), function(i) {
+  ddr_space <- rbind(
+    macho_ddr_nudge = as.numeric(Macho_DDR_nudge_by_decade[[i]]),
+    nice_ddr_nudge = as.numeric(Nice_DDR_nudge_by_decade[[i]]),
+    attract_ddr_nudge = as.numeric(Attractiveness_DDR_nudge_by_decade[[i]]),
+    macho_ddr_inject = as.numeric(Macho_DDR_injected_by_decade[[i]]),
+    nice_ddr_inject = as.numeric(Nice_DDR_injected_by_decade[[i]]),
+    attract_ddr_inject = as.numeric(Attractiveness_DDR_injected_by_decade[[i]])
+  )
   
-  macho_ddr_inject <- average_embedding(predict(embeddings, macho_guy_words_injected))
-  
-  attract_ddr_inject <- average_embedding(predict(embeddings, attractiveness_words_injected))
-  
-  # Put DDRs into a tiny "embedding space" (3 rows × 300 dims)
-  ddr_space<- rbind(
-    #nudge
-    macho_ddr_nudge = as.numeric(macho_ddr_nudge),
-    nice_ddr_nudge  = as.numeric(nice_ddr_nudge),
-    attract_ddr_nudge  = as.numeric(attract_ddr_nudge),
-    #inject
-    macho_ddr_inject = as.numeric(macho_ddr_inject),
-    nice_ddr_inject  = as.numeric(nice_ddr_inject),
-    attract_ddr_inject  = as.numeric(attract_ddr_inject)
-  )
   ddr_space <- embedplyr::as.embeddings(ddr_space)
-  # Cosine of each DDR row to the attractiveness DDR
   
   sims <- ddr_space |>
     get_sims(
-      list("macho_vs_nice_nudge" = list(pos = macho_ddr_nudge,
-                                        neg = nice_ddr_nudge),
-           "macho_vs_nice_inject"   = list(pos = macho_ddr_inject,
-                                           neg = nice_ddr_inject)
+      list(
+        "macho_vs_nice_nudge" = list(
+          pos = Macho_DDR_nudge_by_decade[[i]],
+          neg = Nice_DDR_nudge_by_decade[[i]]
+        ),
+        "macho_vs_nice_inject" = list(
+          pos = Macho_DDR_injected_by_decade[[i]],
+          neg = Nice_DDR_injected_by_decade[[i]]
+        )
       ),
       method = "anchored"
     )
 
-
-  # ---------- Return one tidy row per decade ----------
-  
-  
-  tibble::tibble(
-    i_decade = i,
-    decade   = decades[i],
-    # since the computation is done row by row - I would only extract the one where the anchor is regarded to attractive ddr 
-    attract_on_macho_vs_nice_nudge =
+  tibble(
+    decade = decades[i],
+    anchored_delta_nudge =
       sims$macho_vs_nice_nudge[sims$doc_id == "attract_ddr_nudge"],
-    
-    attract_on_macho_vs_nice_inject =
+    anchored_delta_inject =
       sims$macho_vs_nice_inject[sims$doc_id == "attract_ddr_inject"]
   )
-  
-  
-})
+}) |>
+  bind_rows()
 
-cosine_from_attractiveness <- bind_rows(cosine_from_attractiveness) |> 
-  select(-i_decade)
-
+attractiveness_anchored_long <- attractiveness_anchored_df |>
+  pivot_longer(
+    cols = c(anchored_delta_nudge, anchored_delta_inject),
+    names_to = "approach",
+    values_to = "anchored_delta"
+  ) |>
+  mutate(
+    approach = recode(
+      approach,
+      anchored_delta_nudge = "Nudge",
+      anchored_delta_inject = "Inject"
+    )
+  )
 ```
 
-```{r AttractivePlot}
-# Binding the results into a data frame for plotting
-
-
-#write a ggplot to show the results
-# Nudge plot
-nudge_attr_plot <- ggplot(cosine_from_attractiveness, aes(x = decade)) +
-  geom_line(aes(y = attract_on_macho_vs_nice_inject, color = "Inject")) +
-  geom_line(aes(y = attract_on_macho_vs_nice_nudge, color = "Nudge")) +
+```{r attractiveness-anchored-plot, echo=FALSE, fig.width=10, fig.height=6, fig.align='center'}
+ggplot(attractiveness_anchored_long, aes(x = decade, y = anchored_delta, color = approach)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey45") +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.6) +
   labs(
-    title = "Cosine Similarity from Attractiveness DDR",
+    title = "Anchored Macho-vs-Nice contrast for Attractiveness",
     x = "Decade",
-    y = "Delta (Macho-Nice)",
-    color = "Approrach"
+    y = "Anchored contrast: Macho - Nice",
+    color = "Approach"
   ) +
-  theme_minimal() 
-  
+  theme_minimal()
 ```
 
-```{r AttractivePlotDDRs}
-#| fig.width: 10
-#| fig.height: 6
-#| out.width: "95%"
-#| fig.align: "center"
-#| dev: "png"
-#| dpi: 300
-#| echo: false
-#| message: false
-#| warning: false
+```{r attractiveness-anchored-test}
+anchored_attractiveness_tests <- attractiveness_anchored_long |>
+  group_by(approach) |>
+  summarise(
+    t_value = unname(t.test(anchored_delta, mu = 0)$statistic),
+    df = unname(t.test(anchored_delta, mu = 0)$parameter),
+    p_value = t.test(anchored_delta, mu = 0)$p.value,
+    mean_anchored_delta = mean(anchored_delta),
+    .groups = "drop"
+  )
 
-
- nudge_attr_plot
- 
-
+kable(
+  anchored_attractiveness_tests,
+  caption = "Anchored contrast tests against zero",
+  digits = 3
+)
 ```
 
-### Analysis
+### Method comparison
+
+The table below puts the two outputs on the same scale as much as possible: the original method is represented as `cosine(Macho, Attractiveness) - cosine(Nice, Attractiveness)`, and the optimized method is the anchored `get_sims()` contrast. If the two are mathematically equivalent in this implementation, the difference column should be approximately zero.
+
+```{r attractiveness-method-comparison}
+attractiveness_method_comparison <- pairwise_attractiveness_df |>
+  select(decade, approach, pairwise_delta) |>
+  left_join(
+    attractiveness_anchored_long,
+    by = c("decade", "approach")
+  ) |>
+  mutate(method_difference = pairwise_delta - anchored_delta)
+
+attractiveness_comparison_summary <- attractiveness_method_comparison |>
+  group_by(approach) |>
+  summarise(
+    mean_pairwise_delta = mean(pairwise_delta, na.rm = TRUE),
+    mean_anchored_delta = mean(anchored_delta, na.rm = TRUE),
+    mean_difference = mean(method_difference, na.rm = TRUE),
+    mean_abs_difference = mean(abs(method_difference), na.rm = TRUE),
+    max_abs_difference = max(abs(method_difference), na.rm = TRUE),
+    correlation = cor(pairwise_delta, anchored_delta, use = "complete.obs"),
+    .groups = "drop"
+  )
+
+kable(
+  attractiveness_comparison_summary,
+  caption = "Summary of original pairwise vs. anchored Attractiveness results",
+  digits = 4
+)
+
+kable(
+  attractiveness_method_comparison,
+  caption = "Decade-level comparison for inspecting where the approaches diverge",
+  digits = 4
+)
+
+max_difference <- max(abs(attractiveness_method_comparison$method_difference), na.rm = TRUE)
+if (is.finite(max_difference) && max_difference > 1e-8) {
+  cat(
+    "Inspection note: the two approaches do not match exactly. ",
+    "The decade-level table above shows where the pairwise cosine delta and anchored contrast diverge."
+  )
+} else {
+  cat("Inspection note: the two approaches match up to numerical precision.")
+}
+```
