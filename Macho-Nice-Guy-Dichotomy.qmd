@@ -997,6 +997,10 @@ the next chunk wiill apply the macho-nice axis anchoring onto the inject and nud
 
 
 ```{r pls-cav-attractiveness-by-decade-simple}
+# helper: score one vector on one axis
+project_vec <- function(vec, axis) {
+  sum(vec * axis)
+}
 pls_cav_attractiveness_df <- map_dfr(seq_along(ENGall_model), function(i) {
   
   # Build PLS macho-nice axis for this decade
