@@ -24,15 +24,15 @@ Think of it as a longitudinal semantic dataset—rather than tracking people ove
 
 #### What can we do with it?
 
--   **Inspect meaning:** find the nearest neighbors of a word in any decade.
+- **Inspect meaning:** find the nearest neighbors of a word in any decade.
 
--   **Compare meanings over time:** compute cosine similarity for the same word across decades to track semantic drift.
+- **Compare meanings over time:** compute cosine similarity for the same word across decades to track semantic drift.
 
--   **Study cultural change:** analyze how a word’s associations (e.g., *macho*, *nice*) evolve by decade.
+- **Study cultural change:** analyze how a word’s associations (e.g., *macho*, *nice*) evolve by decade.
 
--   **Compose phrases:** average vectors (e.g., *macho* + *guy*) to represent multi-word concepts.
+- **Compose phrases:** average vectors (e.g., *macho* + *guy*) to represent multi-word concepts.
 
--   **Align embeddings:** apply sequential Procrustes alignment to make spaces from different decades comparable.
+- **Align embeddings:** apply sequential Procrustes alignment to make spaces from different decades comparable.
 
 ### What are we comparing?
 
@@ -60,13 +60,14 @@ Nevertheless, following Tessa et al.’s guidance, applying **orthogonal Procrus
 #Packages
 library(tidyverse)
 library(vroom)       # fast reading of large txts
-library(stringr)
-library(purrr)
-library(sweater)
-library(quanteda.textmodels)
-library(quanteda)
-library(embedplyr)
-library(knitr)
+library(stringr) # string manipulation
+library(purrr) # functional programming
+library(sweater) # for loading embeddings
+library(quanteda.textmodels) # PLS
+library(quanteda) # for text analysis
+library(embedplyr) # for working with embeddingsembedding manipulation
+library(knitr) # kable
+library(pls) # PLS
 
 
 ```
@@ -124,20 +125,20 @@ To make sure these trait lists are interpreted in a masculine context, I use two
 
 The first is to **inject male anchors**. This means I add words such as *man*, *men*, *male*, and *guy* to each list before averaging the embeddings. The goal is to pull the resulting vector toward a masculine semantic context rather than a generic trait context. This is implemented in the *Concepts* chunk.
 
--   **Cons / watch-outs:**\
-    *Anchor dominance risk*—male anchors can outweigh trait terms if the lists are small. Moreover, shared anchors in both groups reduce the distance between group centroids (smaller margins).\
-    **Monitor:** anchor share in each centroid (≤30–40%), cosine margin between group means, and Top-N stability across decades (overlap %).
+- **Cons / watch-outs:**\
+  *Anchor dominance risk*—male anchors can outweigh trait terms if the lists are small. Moreover, shared anchors in both groups reduce the distance between group centroids (smaller margins).\
+  **Monitor:** anchor share in each centroid (≤30–40%), cosine margin between group means, and Top-N stability across decades (overlap %).
 
 The second approach, implemented in the next chunk, is a **masculinity projection nudge**. Here I build a male-versus-female direction in the embedding space and then shift each construct slightly toward the male side before scoring it. This is a softer adjustment than injection: instead of adding anchor words into the list itself, it gently pushes the final vector toward a masculine interpretation.
 
--   **Cons / watch-outs:**\
-    *Axis quality*—if the gender sets are unbalanced or drift strongly by decade, the direction can be noisy.\
-    *Leakage*—over-weighting (large *w*) can wash out original semantics.\
-    **Monitor:** axis stability across decades (cosine between decade-specific *d*<sub>male</sub>), use small *w* (e.g., 0.1–0.3) and run sensitivity analyses; compare results with and without the tweak.
+- **Cons / watch-outs:**\
+  *Axis quality*—if the gender sets are unbalanced or drift strongly by decade, the direction can be noisy.\
+  *Leakage*—over-weighting (large *w*) can wash out original semantics.\
+  **Monitor:** axis stability across decades (cosine between decade-specific *d*<sub>male</sub>), use small *w* (e.g., 0.1–0.3) and run sensitivity analyses; compare results with and without the tweak.
 
 Using both approaches gives me a built-in robustness check. If the results tell the same story under both methods, that makes the interpretation more convincing.
 
-### Masculinity projection nudge
+### Masculinity projection nudge {#musculinity-nudge}
 
 To interpret these trait bundles as referring to men rather than to personality in general, I create a female-to-male direction in the semantic space and add part of that direction to the construct vector. In plain language, this step nudges the vector so that later comparisons are more likely to reflect the masculine reading of the traits.
 
@@ -171,20 +172,28 @@ To interpret these trait bundles as referring to men rather than to personality 
 masculinity_nudge <- function(ddr_vec, # Or any dim1:dim300 embedding object
                               E, # The embedding space 
                               w = 1) {
+ axis <- build_male_female_axis(E)
+  axis <- as.numeric(axis)
   
-  # ensure DDR is a numeric vector
-  if (is.matrix(ddr_vec)) ddr_vec <- as.numeric(ddr_vec)
-  
-  axis <- build_male_female_axis(E)
-
-  
-  # apply nudge: shift toward masculine axis 
-  ddr_vec_nudged <- ddr_vec + w * axis
+  if (is.matrix(ddr_vec)) {
+    
+    ddr_vec_nudged <- sweep(
+      ddr_vec,
+      2,
+      w * axis,
+      FUN = "+"
+    )
+    
+  } else {
+    
+    ddr_vec <- as.numeric(ddr_vec)
+    ddr_vec_nudged <- ddr_vec + w * axis
+    
+  }
   
   ddr_vec_nudged
+
 }
-
-
 
 
 
@@ -243,10 +252,10 @@ traits_warriner <- warriner |>
 
 Properties of ENGall_model:
 
--   n of words: 100,000 (same word list across all decades). the authors only computed embeddings for words that were among the top 100,000 most frequent words over all time (for EngAll)
-    -   n of dimensions: 300.
-    -   Type of Embedding : SGNS.
-    -   Context Window : symmetric context window of 4 words.
+- n of words: 100,000 (same word list across all decades). the authors only computed embeddings for words that were among the top 100,000 most frequent words over all time (for EngAll)
+  - n of dimensions: 300.
+  - Type of Embedding : SGNS.
+  - Context Window : symmetric context window of 4 words.
 
 ```{r}
 ## ----------- ENGall model -----------
@@ -396,10 +405,10 @@ I next build the decade-specific semantic representations for *Macho* and *Nice 
 
 The code creates four such vectors for each decade:
 
--   Macho, using the nudge approach
--   Nice Guy, using the nudge approach
--   Macho, using the inject approach
--   Nice Guy, using the inject approach
+- Macho, using the nudge approach
+- Nice Guy, using the nudge approach
+- Macho, using the inject approach
+- Nice Guy, using the inject approach
 
 After that, I use `get_sims(..., method = "anchored")` to score every word in the vocabulary relative to the Macho-versus-Nice contrast. This produces one number per word per decade. Positive values mean the word is relatively closer to the Macho prototype, whereas negative values mean it is relatively closer to the Nice prototype.
 
@@ -459,7 +468,7 @@ names(decade_scores) <- decades
 
 ```
 
-## Warriner List
+## Warriner List {#warriner}
 
 Next, I keep **only** the words that also appear in the Warriner norms, because those are the words for which I have valence ratings.
 
@@ -525,9 +534,9 @@ In principle, both approaches should tell a very similar story. Because they cur
 
 We begin by specifying a small list of adjectives that directly express attractiveness, such as *attractive*, *beautiful*, *handsome*, and *sexy*. As above, two versions are created:
 
--   Nudge version: uses only the attractiveness descriptors.
+- Nudge version: uses only the attractiveness descriptors.
 
--   Inject version: includes the attractiveness descriptors plus the male anchor words, ensuring a stronger masculine reference frame in the embedding space.
+- Inject version: includes the attractiveness descriptors plus the male anchor words, ensuring a stronger masculine reference frame in the embedding space.
 
 This parallels the earlier Macho/Nice pipeline for consistency.
 
@@ -739,9 +748,11 @@ The result is one contrast score per decade. Positive values mean Attractiveness
 ```{r attractiveness-anchored-cosine}
 attractiveness_anchored_df <- lapply(seq_along(ENGall_model), function(i) {
   ddr_space <- rbind(
+    #nudge 
     macho_ddr_nudge = as.numeric(Macho_DDR_nudge_by_decade[[i]]),
     nice_ddr_nudge = as.numeric(Nice_DDR_nudge_by_decade[[i]]),
     attract_ddr_nudge = as.numeric(Attractiveness_DDR_nudge_by_decade[[i]]),
+    #inject
     macho_ddr_inject = as.numeric(Macho_DDR_injected_by_decade[[i]]),
     nice_ddr_inject = as.numeric(Nice_DDR_injected_by_decade[[i]]),
     attract_ddr_inject = as.numeric(Attractiveness_DDR_injected_by_decade[[i]])
@@ -821,7 +832,7 @@ kable(
 )
 ```
 
-### Method comparison
+### Anchored vs. Delta
 
 The table below puts the two outputs on roughly the same footing. For the original method, I collapse the two cosine values into a single difference score:
 
@@ -829,7 +840,7 @@ The table below puts the two outputs on roughly the same footing. For the origin
 
 I then compare that quantity with the anchored contrast from `get_sims()`. If the two workflows are behaving the same way, their values should be very close to one another and the difference column should stay near zero.
 
-```{r attractiveness-method-comparison}
+```{r attractiveness-method-comparisonP1}
 attractiveness_method_comparison <- pairwise_attractiveness_df |>
   select(decade, approach, pairwise_delta) |>
   left_join(
@@ -872,3 +883,224 @@ if (is.finite(max_difference) && max_difference > 1e-8) {
   cat("Inspection note: the two approaches match up to numerical precision.")
 }
 ```
+
+
+
+:::{.callout-note}
+## What now 
+
+Stuff to need to take into consideration and to thourghly continue the analysis
+
+method: 
+1- Currently the masculinity nudge is set to w=1, meaning that the the nudge is very very storng toward the masculine side. try maybe something more sable.
+* should inspect show what happening when varying w
+
+
+2- the Attractiveness DDR also is constructed using the same "masculine context" embedding both inject and nudge method (which is also set to w=1!) I suspect that the results showed in @warriner that almost all the words loaded greatly more to the macho side of the axis (as shown in *macho_vs_nice* columns) is due to that the attractiveness is also pushed too strongly to the masculinity side.
+
+* should inspect what happend when attractiveness not in the "masculine side" non-inject and non-nudged
+
+
+future: 
+
+3 - Attractiveness as a sexual properties- changing the word bank 
+4- euclidean distance between the macho and nice guy construct as a support of the existance of a split. 
+* since only relative distance is possible for comparison across decades, a method is needed to examing the change (distance ) between the constructs. I'm thinking of taking the delta distance of every word from our macho/nice constructs, compute a delta  and average across ALL the words and see if this average delta changes across time/ 
+
+5- what other axaminations would indicate such "stereo-type- Split"? 
+
+
+:::
+
+
+
+#CAV
+Correlational anchored vector is a technique in each s in the from the 300 dimensions used by recudign the multiculinarity between those embedding to components which explains most of X and predicting Y. that means that the anchored will be done to each outcomes (here we will start with Attractiveness).
+
+Also in @musculinity-nudge the wieghting was set to 1 meaning that the nudge pushes strongly toward the masculine direction. this may explain why across nearly alll the words in the @warrier the macho_vs_nice_anchor are positive (more loaded closer to macho comapred to nice axis). the purpose of this section is to examine two explanations:
+1- whether the pattern shown in the @warrier is due to the nudge being too strong and pushing all words toward the macho direction, or
+2- whether the macho and nice words used to build the axis are to correlated and there fore need to to taken reduce the multicolinarity between them. - Bad anchoring
+
+
+### PLS 
+```{r pls-cav-function}
+
+
+make_pls_macho_nice_axis <- function(embeddings,
+                                     macho_words,
+                                     nice_words,
+                                     masculine_nudge = FALSE) {
+  
+  # 1. Training words: Macho = +1, Nice = -1
+  train_words <- tibble(
+    word = c(macho_words, nice_words),
+    y = c(
+      rep(1, length(macho_words)),
+      rep(-1, length(nice_words))
+    )
+  ) |>
+    distinct(word, .keep_all = TRUE)
+  
+  # 2. Get embeddings
+  X <- predict(embeddings, train_words$word)
+  
+  # 3. Optional masculinity nudge
+  if (masculine_nudge) {
+    X <- masculinity_nudge(X, E = embeddings)
+  }
+  
+  X <- as.matrix(X)
+  
+  # 4. Remove missing / invalid embeddings
+  keep <- complete.cases(X) & rowSums(X^2, na.rm = TRUE) > 0
+  
+  X <- X[keep, , drop = FALSE]
+  y <- train_words$y[keep]
+  
+  # 5. Safety checks
+  if (anyNA(y)) {
+    stop("y still contains NA values.")
+  }
+  
+  if (length(unique(y)) < 2) {
+    stop("Only one class remains after removing missing embeddings.")
+  }
+  
+  # 6. Fit one-component PLS directly
+  pls_data <- as.data.frame(X)
+  pls_data$y <- y
+  
+  pls_fit <- plsr(
+    y ~ .,
+    data = pls_data,
+    ncomp = 1,
+    scale = FALSE,
+    validation = "none"
+  )
+  
+  # 7. Extract learned direction
+  axis <- pls_fit$projection[, 1]
+  
+  # 8. Make sure positive = Macho
+  scores <- as.numeric(X %*% axis)
+  
+  if (mean(scores[y == 1]) < mean(scores[y == -1])) {
+    axis <- -axis
+  }
+  
+  axis
+}
+```
+
+the next chunk wiill apply the macho-nice axis anchoring onto the inject and nudged appraochs, notice that the w=1 is still setting to the same value as before (using the already created object *Attractiveness_DDR_nudge_by_decade*). Therofore, this was meant to inspect the previous anchoring technique. 
+
+
+
+```{r pls-cav-attractiveness-by-decade-simple}
+pls_cav_attractiveness_df <- map_dfr(seq_along(ENGall_model), function(i) {
+  
+  # Build PLS macho-nice axis for this decade
+  macho_nice_axis_nudged <- make_pls_macho_nice_axis(
+    embeddings = ENGall_model[[i]],
+    macho_words = macho_guy_words, 
+    nice_words = nice_guy_words,
+    masculine_nudge = T # the macho-nice axis was create using the nudge approach 
+  )
+  
+    macho_nice_axis_non_nasculine <- make_pls_macho_nice_axis(
+    embeddings = ENGall_model[[i]],
+    macho_words = macho_guy_words, 
+    nice_words = nice_guy_words,
+    masculine_nudge = F 
+  )
+    
+  # Score Attractiveness on the learned axis
+  tibble(
+    decade = decades[i],
+    
+    attractiveness_nudge_pls = project_vec(
+      Attractiveness_DDR_nudge_by_decade[[i]],
+      macho_nice_axis_nudged
+    ),
+    attractiveness_inject_pls = project_vec(
+      Attractiveness_DDR_injected_by_decade[[i]], # this mean that the inject was applied only to the attractiveness ddr not the macho or nice.
+      macho_nice_axis_nudged
+    ),    
+    attractiveness_nudge_pls_non_masculine = project_vec(
+      Attractiveness_DDR_nudge_by_decade[[i]],
+      macho_nice_axis_non_nasculine  # where does masculine attractiveness is on the axis of mach and nice trait (without pushing those tratis to masculine)
+    )
+  )
+})
+
+pls_cav_attractiveness_long <- pls_cav_attractiveness_df |>
+  pivot_longer(
+    cols = c(attractiveness_nudge_pls,
+             attractiveness_inject_pls,
+             attractiveness_nudge_pls_non_masculine),
+    names_to = "approach",
+    values_to = "pls_score"
+  )
+```
+
+### Method comparison
+
+Now I'll compare the 3 method: Anchored (Macho-Nice axis), Delta (Macho minus Nice) and PLS (Learned Macho-Nice axis)
+```{r attractiveness-method-comparisonP2}
+methods_comparison_df <- bind_rows(
+  # PLS-CAV
+  pls_cav_attractiveness_long |> 
+    filter(approach!= "attractiveness_inject_pls")|>
+    transmute(
+      decade = decade,
+      approach = approach,
+      score = pls_score,
+      method = "PLS-CAV"
+    ),
+  
+  # Anchored
+  attractiveness_anchored_df |> 
+    select(-anchored_delta_inject)|>
+    transmute(
+      decade = decade,
+      approach = "Nudge_Anchored",
+      score = anchored_delta_nudge,
+      method = "Geometric anchored"
+    )
+) |>
+  mutate(
+    approach = recode(
+      approach,
+      attractiveness_nudge_pls = "Nudge",
+      attractiveness_nudge_pls_non_masculine = "Nudge-Non-Masculine-Traits"
+    )
+  )
+```
+
+
+```{r method-comp, echo=FALSE, fig.width=10, fig.height=6, fig.align='center'}
+ggplot(
+  methods_comparison_df,
+  aes(
+    x = decade,
+    y = score,
+    color = approach,
+    group = interaction(approach, method)
+  )
+) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey45") +
+  geom_line(linewidth = 0.8) +
+  
+  geom_point(aes(shape = method), size = 3.5) +
+  labs(
+    title = "Methods comparisons",
+    x = "Decade",
+    y = "Macho - Nice (score)",
+    color = "Approach",
+    shape = "Method"
+  ) +
+  theme_minimal()
+```
+
+
+
