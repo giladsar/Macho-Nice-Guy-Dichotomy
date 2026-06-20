@@ -688,8 +688,6 @@ warriner_scores_omit <- lapply(warriner_with_scores, function(df) {
 Here, positive values mean relatively stronger Macho association and negative values mean relatively stronger Nice association. So here we'll see whether the delta, anchored pole loading and pls changes, first overall and then by decade.
 
 
-
-
 ```{r compare-methods-prepare-long}
 method_scores_long <- bind_rows(warriner_scores_omit, .id = "decade") |>
   mutate(
@@ -745,6 +743,198 @@ method_scores_long <- bind_rows(warriner_scores_omit, .id = "decade") |>
 
 ```
 
+
+```{r compare-methods-helper}
+one_sample_score_summary <- function(x) {
+  x <- x[is.finite(x)]
+  
+  n <- length(x)
+  mean_score <- mean(x)
+  sd_score <- if (n > 1) sd(x) else NA_real_
+  se <- if (n > 1) sd_score / sqrt(n) else NA_real_
+   
+  if (n > 1 && is.finite(sd_score) && sd_score > 0) {
+    test <- t.test(x, mu = 0)
+     
+    tibble(
+      n = n,
+      mean_score = mean_score,
+      sd_score = sd_score,
+      se = se,
+      t_value = unname(test$statistic),
+      df = unname(test$parameter),
+      p_value = test$p.value,
+      d_z = mean_score / sd_score,
+      ci_low = unname(test$conf.int[1]),
+      ci_high = unname(test$conf.int[2])
+    )
+  } else { 
+    tibble(
+      n = n,
+      mean_score = mean_score,
+      sd_score = sd_score,
+      se = se,
+      t_value = NA_real_,
+      df = NA_real_,
+      p_value = NA_real_,
+      d_z = NA_real_,
+      ci_low = NA_real_,
+      ci_high = NA_real_
+    )
+  }
+} 
+```
+### Word-level analysis
+
+This asks: for each word, is its average score across decades reliably above or below zero?
+
+```{r compare-methods-word-level}
+compare_nice_macho_words <- function(data, only_traits = FALSE) {
+
+  if (only_traits) {
+    data <- data |>
+      filter(word %in% traits_warriner$word)
+  }
+
+  data |>
+    group_by(method, approach, word) |>
+    group_modify(~ one_sample_score_summary(.x$score)) |>
+    ungroup() |>
+    left_join(
+      data |>
+        select(word, valence, arousal, dominance) |>
+        distinct(),
+      by = "word"
+    ) |>
+    mutate(
+      direction = case_when(
+        mean_score > 0 ~ "Macho",
+        mean_score < 0 ~ "Nice",
+        TRUE ~ "Neutral"
+      ),
+      p_fdr = p.adjust(p_value, method = "fdr"),
+      sig = case_when(
+        is.na(p_fdr) ~ "No",
+        p_fdr < 0.001 ~ "***",
+        p_fdr < 0.01 ~ "**",
+        p_fdr < 0.05 ~ "*",
+        TRUE ~ "No"
+      )
+    ) |>
+    arrange(method, approach, p_fdr)
+}
+
+word_summary_all <- compare_nice_macho_words(
+  method_scores_long,
+  only_traits = FALSE
+)
+
+word_summary_traits <- compare_nice_macho_words(
+  method_scores_long,
+  only_traits = TRUE
+)
+
+word_summary_all |>
+  filter(sig != "No") |>
+  group_by(method, approach, direction) |>
+  arrange(p_fdr, .by_group = TRUE) |>
+  slice_head(n = 10) |>
+  ungroup() |>
+  select(method, approach, direction, word, n, mean_score, d_z, p_value, p_fdr, sig) |>
+  kable(
+    caption = "Top word-level Macho/Nice scores across decades by method and approach",
+    digits = 3
+  )
+
+```
+### Decade-level analysis
+
+This asks: within each decade, are Warriner words on average shifted toward Macho or Nice?
+
+```{r compare-methods-decade-level}
+compare_overall_by_decade <- function(data, only_traits = FALSE) {
+
+  if (only_traits) {
+    data <- data |>
+      filter(word %in% traits_warriner$word)
+  }
+
+  data |>
+    group_by(method, approach, decade) |>
+    group_modify(~ one_sample_score_summary(.x$score)) |>
+    ungroup() |>
+    mutate(
+      direction = case_when(
+        mean_score > 0 ~ "Macho",
+        mean_score < 0 ~ "Nice",
+        TRUE ~ "Neutral"
+      ),
+      sig = case_when(
+        is.na(p_value) ~ "No",
+        p_value < 0.001 ~ "***",
+        p_value < 0.01 ~ "**",
+        p_value < 0.05 ~ "*",
+        TRUE ~ "No"
+      )
+    ) |>
+    arrange(method, approach, decade)
+}
+
+decade_summary_all <- compare_overall_by_decade(
+  method_scores_long,
+  only_traits = FALSE
+)
+
+decade_summary_traits <- compare_overall_by_decade(
+  method_scores_long,
+  only_traits = TRUE
+)
+
+decade_summary_all |>
+  select(
+    method, approach, decade, n,
+    mean_score, d_z, ci_low, ci_high,
+    t_value, df, p_value, direction, sig
+  ) |>
+  kable(
+    caption = "Decade-level Macho/Nice shift across Warriner words by method and approach",
+    digits = 3
+  )
+
+
+```
+
+
+### Overall method-level summary
+
+This gives one result per `method × approach` across all word-decade observations.
+
+```{r compare-methods-overall}
+overall_summary_all <- method_scores_long |>
+  group_by(method, approach) |>
+  group_modify(~ one_sample_score_summary(.x$score)) |>
+  ungroup() |>
+  mutate(
+    direction = case_when(
+      mean_score > 0 ~ "Macho",
+      mean_score < 0 ~ "Nice",
+      TRUE ~ "Neutral"
+    ),
+    sig = case_when(
+      is.na(p_value) ~ "No",
+      p_value < 0.001 ~ "***",
+      p_value < 0.01 ~ "**",
+      p_value < 0.05 ~ "*",
+      TRUE ~ "No"
+    )
+  )
+
+overall_summary_all |>
+  kable(
+    caption = "Overall Macho/Nice shift across all Warriner word-decade observations",
+    digits = 3
+  )
+```
 ## Attractiveness
 
 This section intentionally keeps **both** Attractiveness workflows in the same document.
@@ -820,253 +1010,6 @@ names(Attractiveness_DDR_injected_by_decade) <- decades
 names(Attractiveness_DDR_nudge_by_decade) <- decades
 ```
 
-### Original pairwise approach from main
-
-This reproduces the original logic. For every decade and for each approach, it calculates:
-
-1.  the cosine similarity between Attractiveness and Macho; and
-2.  the cosine similarity between Attractiveness and Nice.
-
-So the plot shows two lines for each approach. A higher line means that construct is more semantically similar to Attractiveness in that decade. Afterward, I also compute a simple summary difference, `Macho - Nice`, so the result can be compared more directly with the newer anchored method.
-
-```{r attractiveness-pairwise-cosine}
-
-cosine_from_attractiveness <- vector("list", length(ENGall_model))
-
-
-for (i in seq_along(ENGall_model)) {
-  
-  # For each decade, we take the embeddings and add the DDRs for Macho, Nice to the embedding space. This allows us to compute cosine similarities between these DDRs and any other word in the space.
-  embeddings <- ENGall_model[[i]]
-  embeddings <- embeddings[magnitude(embeddings) != 0, ]
-  
-  embeddings_plus <- rbind(
-    as.matrix(embeddings),
-    macho_ddr_nudge  = as.numeric(Macho_DDR_nudge_by_decade[[i]]),
-    nice_ddr_nudge   = as.numeric(Nice_DDR_nudge_by_decade[[i]]),
-    macho_ddr_inject = as.numeric(Macho_DDR_injected_by_decade[[i]]),
-    nice_ddr_inject  = as.numeric(Nice_DDR_injected_by_decade[[i]])
-  ) |>
-    embedplyr::as.embeddings()
-  
-  
-  sims <- embeddings_plus |>
-    get_sims(
-      list(
-        attract_nudge  = Attractiveness_DDR_nudge_by_decade[[i]],
-        attract_inject = Attractiveness_DDR_injected_by_decade[[i]]
-      ),
-      method = "cosine"
-    )
-  
-  cosine_from_attractiveness[[i]] <- tibble(
-    decade = decades[i],
-    approach = c("Nudge", "Inject"),
-    sims_macho_attract = c(
-      sims$attract_nudge[sims$doc_id == "macho_ddr_nudge"],
-      sims$attract_inject[sims$doc_id == "macho_ddr_inject"]),
-    sims_nice_attract = c(
-      sims$attract_nudge[sims$doc_id == "nice_ddr_nudge"],
-      sims$attract_inject[sims$doc_id == "nice_ddr_inject"]
-    )
-  )
-  
-  pairwise_attractiveness_df <- bind_rows(cosine_from_attractiveness) |>
-  mutate(
-    pairwise_delta = sims_macho_attract - sims_nice_attract
-  )
-}
-cosine_attract_nudge_df <- pairwise_attractiveness_df |>
-  filter(approach == "Nudge") |>
-  select(-approach)
-
-cosine_attract_inject_df <- pairwise_attractiveness_df |>
-  filter(approach == "Inject") |>
-  select(-approach)
-
-```
-
-```{r attractiveness-pairwise-plot, echo=FALSE, fig.width=10, fig.height=7, fig.align='center'}
-pairwise_attractiveness_long <- pairwise_attractiveness_df |>
-  pivot_longer(
-    cols = c(sims_macho_attract, sims_nice_attract),
-    names_to = "construct",
-    values_to = "cosine_similarity"
-  ) |>
-  mutate(
-    construct = recode(
-      construct,
-      sims_macho_attract = "Macho",
-      sims_nice_attract = "Nice"
-    )
-  )
-
-ggplot(pairwise_attractiveness_long, aes(x = decade, y = cosine_similarity, color = construct)) +
-  geom_line(linewidth = 0.8) +
-  geom_point(size = 1.6) +
-  facet_wrap(~ approach, ncol = 1) +
-  labs(
-    title = "Original pairwise cosine approach",
-    x = "Decade",
-    y = "Cosine similarity to Attractiveness",
-    color = "Construct"
-  ) +
-  theme_minimal()
-```
-
-```{r attractiveness-pairwise-test}
-pairwise_attractiveness_tests <- bind_rows(
-  {
-    tt <- t.test(
-      cosine_attract_nudge_df$sims_macho_attract,
-      cosine_attract_nudge_df$sims_nice_attract,
-      alternative = "two.sided"
-    )
-    tibble(
-      approach = "Nudge",
-      t_value = unname(tt$statistic),
-      df = unname(tt$parameter),
-      p_value = tt$p.value,
-      mean_macho_cosim = mean(cosine_attract_nudge_df$sims_macho_attract),
-      mean_nice_cosim = mean(cosine_attract_nudge_df$sims_nice_attract),
-      mean_pairwise_delta = mean(
-        cosine_attract_nudge_df$sims_macho_attract -
-          cosine_attract_nudge_df$sims_nice_attract
-      )
-    )
-  },
-  {
-    tt <- t.test(
-      cosine_attract_inject_df$sims_macho_attract,
-      cosine_attract_inject_df$sims_nice_attract,
-      alternative = "two.sided"
-    )
-    tibble(
-      approach = "Inject",
-      t_value = unname(tt$statistic),
-      df = unname(tt$parameter),
-      p_value = tt$p.value,
-      mean_macho_cosim = mean(cosine_attract_inject_df$sims_macho_attract),
-      mean_nice_cosim = mean(cosine_attract_inject_df$sims_nice_attract),
-      mean_pairwise_delta = mean(
-        cosine_attract_inject_df$sims_macho_attract -
-          cosine_attract_inject_df$sims_nice_attract
-      )
-    )
-  }
-)
-
-kable(
-  pairwise_attractiveness_tests,
-  caption = "Original pairwise cosine tests from main",
-  digits = 3
-)
-```
-
-### Anchored contrast approach from anlysis-after-opt
-
-This approach puts the Macho, Nice, and Attractiveness vectors into a small temporary semantic space for each decade and then uses `get_sims()` to ask a single question: is Attractiveness closer to Macho or to Nice?
-
-The result is one contrast score per decade. Positive values mean Attractiveness is closer to Macho than to Nice; negative values mean it is closer to Nice than to Macho.
-
-```{r attractiveness-anchored-cosine}
-attractiveness_anchored_df <- lapply(seq_along(ENGall_model), function(i) {
-  
-  # -------------------------------------- 
-  # THIS PART WAS DONE ORIGINALLY TO CREATE A SMALL EMBEDDING SPACE FOR THE THREE DDRs, BUT IT MAKES THE COMARISON WITH THE ORIGINAL PAIRWISE METHOD LESS DIRECT. SO I COMMENTED IT OUT.
-  
-  # ddr_space <- rbind(
-  #   #nudge 
-  #   macho_ddr_nudge = as.numeric(Macho_DDR_nudge_by_decade[[i]]),
-  #   nice_ddr_nudge = as.numeric(Nice_DDR_nudge_by_decade[[i]]),
-  #   attract_ddr_nudge = as.numeric(Attractiveness_DDR_nudge_by_decade[[i]]),
-  #   #inject
-  #   macho_ddr_inject = as.numeric(Macho_DDR_injected_by_decade[[i]]),
-  #   nice_ddr_inject = as.numeric(Nice_DDR_injected_by_decade[[i]]),
-  #   attract_ddr_inject = as.numeric(Attractiveness_DDR_injected_by_decade[[i]])
-  # )
-  # 
-  # ddr_space <- embedplyr::as.embeddings(ddr_space)
-  
-  # DDR_SPACE WAS PASSED AS E TO GET_SIMS()
-    # -------------------------------------- 
-
-  
-  embeddings <- ENGall_model[[i]]
-  embeddings <- embeddings[magnitude(embeddings) != 0, ]
-  
-  
-  embeddings_plus <- rbind(
-    as.matrix(embeddings),
-    attract_ddr_nudge  = as.numeric(Attractiveness_DDR_nudge_by_decade[[i]]),
-    attract_ddr_inject = as.numeric(Attractiveness_DDR_injected_by_decade[[i]])
-  ) |>
-    embedplyr::as.embeddings()
-  
-  
-  sims <- embeddings_plus |>
-    get_sims(
-      list(
-        "macho_vs_nice_nudge" = list(
-          pos = Macho_DDR_nudge_by_decade[[i]],
-          neg = Nice_DDR_nudge_by_decade[[i]]
-        ),
-        "macho_vs_nice_inject" = list(
-          pos = Macho_DDR_injected_by_decade[[i]],
-          neg = Nice_DDR_injected_by_decade[[i]]
-        )
-      ),
-      method = "anchored"
-    )
-
-  tibble(
-    decade = decades[i],
-    anchored_delta_nudge =
-      sims$macho_vs_nice_nudge[sims$doc_id == "attract_ddr_nudge"],
-    
-    anchored_delta_inject =
-      sims$macho_vs_nice_inject[sims$doc_id == "attract_ddr_inject"]
-  )
-}) |>
-  bind_rows()
-
-attractiveness_anchored_long <- attractiveness_anchored_df |>
-  pivot_longer(
-    cols = c(anchored_delta_nudge, anchored_delta_inject),
-    names_to = "approach",
-    values_to = "anchored_delta"
-  ) |>
-  mutate(
-    
-    # The anchored method produces a contrast score that ranges from 0 to 1, where 0.5 means Attractiveness is equidistant from Macho and Nice. To make it more directly comparable to the original pairwise cosine deltas (which can range from negtive to possitive values), I rescale the anchored deltas by multiplying by 2 and then shifting by -1. This way, a value of 0.5 in the anchored method corresponds to the same point of balance as in the pairwise method.
-    anchored_centered = 2 * anchored_delta - 1,
-    approach = recode(
-      approach,
-      anchored_delta_nudge = "Nudge",
-      anchored_delta_inject = "Inject")
-  )
-```
-
-```{r attractiveness-anchored-plot, echo=FALSE, fig.width=10, fig.height=6, fig.align='center'}
-ggplot(attractiveness_anchored_long, aes(x = decade, y = anchored_centered, color = approach)) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "grey45") +
-  geom_line(linewidth = 0.8) +
-  geom_point(size = 1.6) +
-  labs(
-    title = "Anchored Macho-vs-Nice contrast for Attractiveness",
-    x = "Decade",
-    y = "Anchored contrast: Macho - Nice",
-    color = "Approach"
-  ) +
-  theme_minimal()
-```
-
-```{r attractiveness-anchored-test}
-# thsoe the change in attractiveness over time on the macho-nice axis shift significantly 
-
-
-    
-```
 
 ::: callout-note
 ## What now
@@ -1085,601 +1028,3 @@ future:
 
 5- what other axaminations would indicate such "stereo-type- Split"?
 :::
-
-```{r pls-cav-attractiveness-by-decade-simple}
-# Score one vector against one axis using cosine, so the PLS scale stays
-# bounded and easier to compare across decades.
-project_vec <- function(vec, axis) {
-  cosine_sim(as.numeric(vec), as.numeric(axis))
-}
-
-pls_nudge_axis_by_decade <- vector("list", length(ENGall_model))
-pls_cav_attractiveness_df <- vector("list", length(ENGall_model))
-
-for (i in seq_along(ENGall_model)) {
-  pls_nudge_axis_by_decade[[i]] <- make_pls_macho_nice_axis(
-    embeddings = ENGall_model[[i]],
-    macho_words = macho_guy_words,
-    nice_words = nice_guy_words,
-    masculine_nudge = TRUE
-  )
-
-  pls_cav_attractiveness_df[[i]] <- tibble(
-    decade = decades[i],
-    pls_delta_nudge = project_vec(
-      Attractiveness_DDR_nudge_by_decade[[i]],
-      pls_nudge_axis_by_decade[[i]]
-    )
-  )
-}
-
-names(pls_nudge_axis_by_decade) <- decades
-pls_cav_attractiveness_df <- bind_rows(pls_cav_attractiveness_df)
-```
-
-### Method comparison
-
-The figure below now puts all three nudge-based methods on the same plot for Attractiveness: the original pairwise cosine delta, the anchored contrast, and the PLS score.
-
-```{r attractiveness-method-comparisonP2}
-methods_comparison_df <- bind_rows(
-  pairwise_attractiveness_df |>
-    filter(approach == "Nudge") |>
-    transmute(
-      decade = decade,
-      score = pairwise_delta,
-      method = "Pairwise delta"
-    ),
-  attractiveness_anchored_long |> filter(approach == "Nudge")|> 
-    transmute(
-      decade = decade,
-      score = anchored_centered,
-      method = "Anchored"
-    ),
-  pls_cav_attractiveness_df |>
-    transmute(
-      decade = decade,
-      score = pls_delta_nudge,
-      method = "PLS"
-    )
-) 
-
-methods_comparison_summary <- methods_comparison_df |>
-  group_by(method) |>
-  summarise(
-    mean_score = mean(score, na.rm = TRUE),
-    sd_score = sd(score, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-kable(
-  methods_comparison_summary,
-  caption = "Attractiveness comparison across the three nudge-based methods",
-  digits = 4
-)
-```
-
-```{r method-comp, echo=FALSE, fig.width=10, fig.height=6, fig.align='center'}
-ggplot(
-  methods_comparison_df,
-  aes(x = decade, y = score, color = method)
-) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "grey45") +
-  geom_line(linewidth = 0.8) +
-  geom_point(size = 2.2) +
-  labs(
-    title = "Attractiveness across pairwise delta, anchored, and PLS",
-    x = "Decade",
-    y = "Macho - Nice score",
-    color = "Method"
-  ) +
-  theme_minimal()
-```
-
-Because the nudge and inject variants point to the same substantive conclusion in the tables above, the remaining sections focus on the **nudge** specification only. I leave the inject results in place as a robustness check, but narrowing the downstream analyses to one masculinity adjustment keeps the cross-method comparisons readable without changing the story.
-
-# Research Questions
-
-The next three subsections bring back the research-question logic from Section 2.2 of `v1.html`, but now each question is answered with three parallel nudge-based methods:
-
-- `Pairwise delta`: `cos(word, Macho) - cos(word, Nice)`
-- `Anchored`: the `get_sims(..., method = "anchored")` contrast
-- `PLS`: cosine to the learned PLS Macho-versus-Nice axis
-
-```{r rq-helpers}
-#Helper - Comparison:
-compare_DDRs<- function(df) {
-  
-  df |> 
-    mutate(
-      # Nudge
-      delta_nudge = macho_nudge - nice_nudge,
-      # Inject
-      delta_inject = macho_inject - nice_inject,
-    )
-}
-
-
-# Adding the variables to the list 
-warriner_COSINE_DDR_Diff <- list() 
-for (i in seq_along(warriner_COSINE_DDR_omit)) {
-  warriner_COSINE_DDR_Diff[[i]]<- compare_DDRs(warriner_COSINE_DDR_omit[[i]])
-}
-names(warriner_COSINE_DDR_Diff) <- decades 
-
-# Make it a long format for it to be easier to work with :
-
-
-bind_with_decade <- function(dflist) {
-  
-  tibble(
-    decade = names(dflist),
-    df     = dflist
-  ) |>
-    mutate(df = map2(df, decade, ~ .x |>
-                       mutate(decade = .y))) |>
-    pull(df) |>
-    bind_rows()
-}
-
-raw_long <- bind_with_decade(warriner_COSINE_DDR_Diff) |>
-  mutate(
-    
-    # Make `decade` an ordered factor (sorted numerically)
-    
-    decade     = factor(decade, levels = sort(unique(as.integer(decade))) |> as.character())
-  ) 
-```
-
-```{r nudge-word-level-scores}
-
-# This function computes the cosine similarity between each row of a matrix and one vector.
-# So if mat contains many word embeddings, and vec is a semantic direction such as a Macho–Nice axis, the function returns one cosine score per word.
-
-
-warriner_nudge_method_scores <- vector("list", length(ENGall_model))
-
-for (i in seq_along(ENGall_model)) {
-  embeddings <- ENGall_model[[i]]
-  embeddings <- embeddings[magnitude(embeddings) != 0, ]
-
-  available_words <- warriner |>
-
-    filter(word %in% rownames(embeddings)) |>
-    pull(word) 
-    
-    
-  
-  # get the embedding of all the available words from warrier's list
-  word_embeddings <- predict(embeddings, available_words)
-
-  
-  
-  # Method 1: Pairwise delta  
-  pairwise_scores <- tibble(
-    word = available_words,
-    pairwise_delta =
-      row_cosine_scores(word_embeddings, Macho_DDR_nudge_by_decade[[i]]) -
-      row_cosine_scores(word_embeddings, Nice_DDR_nudge_by_decade[[i]])
-  )
-
-  # Method 2: Anchored 
-  # decade_scores is the output of get_sims() for each decade when method is set to 'anchored' :
-  anchored_scores <- decade_scores[[i]] |> 
-    
-    rename(word = doc_id) |>
-    # decade_scores contains both nudge and inject, we take only nudge:
-    select(word, anchored = macho_vs_nice_nudge) 
-
-  # Method 3: PLS
-  pls_scores <- tibble(
-    word = available_words,
-    pls = row_cosine_scores(word_embeddings, pls_nudge_axis_by_decade[[i]])
-  )
-
-  warriner_nudge_method_scores[[i]] <- warriner |>
-    inner_join(pairwise_scores, by = "word") |>
-    inner_join(anchored_scores, by = "word") |>
-    inner_join(pls_scores, by = "word") |>
-    
-    # Omit the words that were used to create the DDRs, to reduce noise in the analysis:
-    filter(!word %in% omit_words) |>
-    mutate(
-      decade = decades[i]    
-    )
-
-}
-
-names(warriner_nudge_method_scores) <- decades
-
-warriner_nudge_method_scores_wide <- bind_rows(warriner_nudge_method_scores)
-
-warriner_nudge_method_scores_long <- warriner_nudge_method_scores_wide |>
-  pivot_longer(
-    cols = c(pairwise_delta, anchored, pls),
-    names_to = "method",
-    values_to = "score"
-  ) |>
-  mutate(
-    method = recode(
-      method,
-      pairwise_delta = "Pairwise delta",
-      anchored = "Anchored",
-      pls = "PLS"
-    ),
-    decade = factor(decade, levels = decades),
-    valence_centered = valence - 5
-  )
-```
-
-```{r rq-helpers}
-one_sample_summary <- function(x) {
-  x <- x[is.finite(x)] 
-
-  n <- length(x)
-  mean_score <- mean(x)
-  sd_score <- if (n > 1) sd(x) else NA_real_
-  se <- if (n > 1) sd_score / sqrt(n) else NA_real_
-
-  if (n > 1 && is.finite(sd_score) && sd_score > 0) {
-    tt <- t.test(x, mu = 0)
-    t_value <- unname(tt$statistic)
-    df <- unname(tt$parameter)
-    p_value <- tt$p.value
-    ci_low <- unname(tt$conf.int[1])
-    ci_high <- unname(tt$conf.int[2])
-    d_z <- mean_score / sd_score
-  } else {
-    t_value <- NA_real_
-    df <- NA_real_
-    p_value <- NA_real_
-    ci_low <- NA_real_
-    ci_high <- NA_real_
-    d_z <- NA_real_
-  }
-
-  tibble(
-    n = n,
-    mean_score = mean_score,
-    sd_score = sd_score,
-    se = se,
-    t_value = t_value,
-    df = df,
-    p_value = p_value,
-    d_z = d_z,
-    ci_low = ci_low,
-    ci_high = ci_high,
-    direction = case_when(
-      mean_score > 0 ~ "Macho",
-      mean_score < 0 ~ "Nice",
-      TRUE ~ "Neutral"
-    ),
-    sig = case_when(
-      is.na(p_value) ~ "No",
-      p_value < 0.001 ~ "***",
-      p_value < 0.01 ~ "**",
-      p_value < 0.05 ~ "*",
-      TRUE ~ "No"
-    )
-  )
-}
-
-summarise_contrast_by_item <- function(data, only_traits = FALSE) {
-  if (only_traits) {
-    data <- data |>
-      filter(word %in% traits_warriner$word)
-  }
-
-  data |>
-    group_by(method, word) |>
-    group_modify(~ one_sample_summary(.x$score)) |>
-    ungroup()
-}
-
-make_top_table <- function(summary_df, top_n = 10, min_n = 5) {
-  bind_rows(
-    summary_df |>
-      filter(sig != "No", n >= min_n) |>
-      group_by(method) |>
-      arrange(desc(d_z), .by_group = TRUE) |>
-      slice_head(n = top_n) |>
-      mutate(side = "Macho", rank = row_number()),
-    summary_df |>
-      filter(sig != "No", n >= min_n) |>
-      group_by(method) |>
-      arrange(d_z, .by_group = TRUE) |>
-      slice_head(n = top_n) |>
-      mutate(side = "Nice", rank = row_number())
-  ) |>
-    ungroup() |>
-    select(method, side, rank, word, n, d_z, p_value)
-}
-
-method_overlap <- function(top_df) {
-  if (n_distinct(top_df$method) < 2) {
-    return(tibble(
-      method_1 = character(),
-      method_2 = character(),
-      overlap_n = integer(),
-      jaccard = double()
-    ))
-  }
-
-  method_pairs <- combn(unique(top_df$method), 2, simplify = FALSE)
-
-  map_dfr(method_pairs, function(pair) {
-    left_words <- top_df |>
-      filter(method == pair[1]) |>
-      pull(word)
-
-    right_words <- top_df |>
-      filter(method == pair[2]) |>
-      pull(word)
-
-    overlap_words <- intersect(left_words, right_words)
-    union_n <- length(union(left_words, right_words))
-
-    tibble(
-      method_1 = pair[1],
-      method_2 = pair[2],
-      overlap_n = length(overlap_words),
-      jaccard = if (union_n > 0) length(overlap_words) / union_n else NA_real_
-    )
-  })
-}
-
-get_top_valence_series <- function(data, only_traits = FALSE, top_n = 10) {
-  if (only_traits) {
-    data <- data |>
-      filter(word %in% traits_warriner$word)
-  }
-
-  bind_rows(
-    data |>
-      group_by(method, decade, decade_num) |>
-      arrange(desc(score), .by_group = TRUE) |>
-      slice_head(n = top_n) |>
-      summarise(mean_valence = mean(valence_centered, na.rm = TRUE), .groups = "drop") |>
-      mutate(side = "Macho"),
-    data |>
-      group_by(method, decade, decade_num) |>
-      arrange(score, .by_group = TRUE) |>
-      slice_head(n = top_n) |>
-      summarise(mean_valence = mean(valence_centered, na.rm = TRUE), .groups = "drop") |>
-      mutate(side = "Nice")
-  )
-}
-
-fit_valence_trends <- function(df) {
-  df |>
-    group_by(level, side, method) |>
-    group_modify(~ {
-      fit <- lm(mean_valence ~ decade_num, data = .x)
-      fit_summary <- summary(fit)
-
-      tibble(
-        intercept = unname(coef(fit)[["(Intercept)"]]),
-        slope = unname(coef(fit)[["decade_num"]]),
-        p_value = fit_summary$coefficients["decade_num", "Pr(>|t|)"],
-        r_squared = fit_summary$r.squared
-      )
-    }) |>
-    ungroup() |>
-    mutate(
-      sig = case_when(
-        p_value < 0.001 ~ "***",
-        p_value < 0.01 ~ "**",
-        p_value < 0.05 ~ "*",
-        TRUE ~ "No"
-      )
-    )
-}
-```
-
-## Q1
-
-**Is there, overall, a difference in association across 200 years between Macho and Nice Guy?**
-
-Here, positive values mean relatively stronger Macho association and negative values mean relatively stronger Nice association. So for each method I test whether the mean score differs from zero, first overall and then by decade.
-
-```{r rq1}
-rq1_overall <- warriner_nudge_method_scores_long |>
-  group_by(method) |>
-  group_modify(~ one_sample_summary(.x$score)) |>
-  ungroup()
-
-rq1_by_decade <- warriner_nudge_method_scores_long |>
-  group_by(method, decade) |>
-  group_modify(~ one_sample_summary(.x$score)) |>
-  ungroup()
-
-rq1_by_decade_summary <- rq1_by_decade |>
-  group_by(method) |>
-  summarise(
-    significant_decades = sum(sig != "No", na.rm = TRUE),
-    mean_of_decade_means = mean(mean_score, na.rm = TRUE),
-    min_decade_mean = min(mean_score, na.rm = TRUE),
-    max_decade_mean = max(mean_score, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-rq1_method_agreement <- map_dfr(
-  combn(c("pairwise_delta", "anchored", "pls"), 2, simplify = FALSE),
-  function(cols) {
-    x <- warriner_nudge_method_scores_wide[[cols[1]]]
-    y <- warriner_nudge_method_scores_wide[[cols[2]]]
-
-    tibble(
-      method_1 = recode(
-        cols[1],
-        pairwise_delta = "Pairwise delta",
-        anchored = "Anchored",
-        pls = "PLS"
-      ),
-      method_2 = recode(
-        cols[2],
-        pairwise_delta = "Pairwise delta",
-        anchored = "Anchored",
-        pls = "PLS"
-      ),
-      correlation = cor(x, y, use = "complete.obs"),
-      sign_agreement = mean(sign(x) == sign(y), na.rm = TRUE)
-    )
-  }
-)
-
-kable(
-  rq1_overall,
-  caption = "RQ1 overall test against zero for all three nudge-based methods",
-  digits = 4
-)
-
-kable(
-  rq1_by_decade_summary,
-  caption = "RQ1 decade-level summary by method",
-  digits = 4
-)
-
-kable(
-  rq1_method_agreement,
-  caption = "RQ1 agreement between scoring methods",
-  digits = 4
-)
-```
-
-```{r rq1-plot, echo=FALSE, fig.width=10, fig.height=6, fig.align='center'}
-ggplot(rq1_by_decade, aes(x = as.numeric(as.character(decade)), y = mean_score, color = method)) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "grey45") +
-  geom_line(linewidth = 0.8) +
-  geom_point(size = 1.8) +
-  labs(
-    title = "RQ1: decade-level Macho-minus-Nice scores",
-    x = "Decade",
-    y = "Mean score",
-    color = "Method"
-  ) +
-  theme_minimal()
-```
-
-## Q2
-
-**Across all decades, which words or traits are most associated with each construct?**
-
-For the cross-decade ranking I require an item to appear in at least five decades. This keeps the overall tables from being driven by one- or two-decade accidents.
-
-```{r rq2}
-rq2_words_summary <- summarise_contrast_by_item(warriner_nudge_method_scores_long)
-rq2_traits_summary <- summarise_contrast_by_item(
-  warriner_nudge_method_scores_long,
-  only_traits = TRUE
-)
-
-rq2_top_words <- make_top_table(rq2_words_summary, top_n = 10, min_n = 5)
-rq2_top_traits <- make_top_table(rq2_traits_summary, top_n = 10, min_n = 5)
-
-rq2_method_overlap <- bind_rows(
-  method_overlap(rq2_top_words |> filter(side == "Macho")) |>
-    mutate(item_type = "Words", side = "Macho"),
-  method_overlap(rq2_top_words |> filter(side == "Nice")) |>
-    mutate(item_type = "Words", side = "Nice"),
-  method_overlap(rq2_top_traits |> filter(side == "Macho")) |>
-    mutate(item_type = "Traits", side = "Macho"),
-  method_overlap(rq2_top_traits |> filter(side == "Nice")) |>
-    mutate(item_type = "Traits", side = "Nice")
-)
-
-kable(
-  rq2_top_words,
-  caption = "RQ2 top word associates by method",
-  digits = 4
-)
-
-kable(
-  rq2_top_traits,
-  caption = "RQ2 top trait associates by method",
-  digits = 4
-)
-
-kable(
-  rq2_method_overlap,
-  caption = "RQ2 overlap of top associates across methods",
-  digits = 4
-)
-```
-
-## Q3
-
-**Over time, does the valence of the words or traits most associated with one construct change?**
-
-For each decade and method, I take the top 10 Macho-associated and top 10 Nice-associated items and compute their mean valence on a centered `-4 ... +4` scale by subtracting `5` from Warriner valence.
-
-```{r rq3}
-rq3_valence_series <- bind_rows(
-  get_top_valence_series(warriner_nudge_method_scores_long, only_traits = FALSE) |>
-    mutate(level = "Words"),
-  get_top_valence_series(warriner_nudge_method_scores_long, only_traits = TRUE) |>
-    mutate(level = "Traits")
-) |>
-  mutate(
-    level = factor(level, levels = c("Words", "Traits")),
-    side = factor(side, levels = c("Macho", "Nice"))
-  )
-
-rq3_valence_trends <- fit_valence_trends(rq3_valence_series)
-
-rq3_method_agreement <- rq3_valence_series |>
-  select(level, side, decade_num, method, mean_valence) |>
-  pivot_wider(names_from = method, values_from = mean_valence)
-
-rq3_method_correlations <- map_dfr(
-  split(
-    rq3_method_agreement,
-    interaction(
-      rq3_method_agreement$level,
-      rq3_method_agreement$side,
-      drop = TRUE
-    )
-  ),
-  function(df) {
-    map_dfr(combn(c("Pairwise delta", "Anchored", "PLS"), 2, simplify = FALSE), function(pair) {
-      tibble(
-        level = df$level[1],
-        side = df$side[1],
-        method_1 = pair[1],
-        method_2 = pair[2],
-        correlation = cor(df[[pair[1]]], df[[pair[2]]], use = "complete.obs")
-      )
-    })
-  }
-)
-
-kable(
-  rq3_valence_trends,
-  caption = "RQ3 linear trends in mean valence by method",
-  digits = 4
-)
-
-kable(
-  rq3_method_correlations,
-  caption = "RQ3 correlation of valence time series across methods",
-  digits = 4
-)
-```
-
-```{r rq3-plot, echo=FALSE, fig.width=11, fig.height=7, fig.align='center'}
-ggplot(
-  rq3_valence_series,
-  aes(x = decade_num, y = mean_valence, color = method)
-) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "grey45") +
-  geom_line(linewidth = 0.8) +
-  geom_point(size = 1.7) +
-  facet_grid(level ~ side) +
-  labs(
-    title = "RQ3: valence of top Macho and Nice associates over time",
-    x = "Decade",
-    y = "Mean centered valence",
-    color = "Method"
-  ) +
-  theme_minimal()
-```
