@@ -935,6 +935,177 @@ overall_summary_all |>
     digits = 3
   )
 ```
+## Q2
+
+**Which traits are most consistently pulled toward Macho and Nice Guy across decades?**
+
+To keep this interpretable, I focus here on the rated trait words rather than the full vocabulary. The goal is simple: average each trait's score across decades, keep the significant trait-level results, and then inspect the strongest positive effects (Macho) and strongest negative effects (Nice).
+
+```{r compare-methods-top-traits}
+top_signed_traits <- function(data, top_n = 10) {
+  data |>
+    filter(sig != "No") |>
+    mutate(
+      sort_score = if_else(direction == "Macho", d_z, -d_z)
+    ) |>
+    group_by(method, approach, direction) |>
+    slice_max(order_by = sort_score, n = top_n, with_ties = FALSE) |>
+    arrange(method, approach, direction, desc(sort_score), .by_group = TRUE) |>
+    mutate(rank = row_number()) |>
+    ungroup()
+}
+
+top_trait_summary <- top_signed_traits(word_summary_traits, top_n = 10)
+```
+
+Before the plot, I keep just the top five traits per method, approach, and direction. Positive bars indicate Macho-leaning traits and negative bars indicate Nice-leaning traits, so the sign itself still carries the interpretation.
+
+```{r compare-methods-top-traits-plot}
+top_trait_plot_data <- top_signed_traits(word_summary_traits, top_n = 5) |>
+  arrange(method, approach, direction, rank) |>
+  mutate(
+    trait_facet = paste(word, method, approach, direction, sep = "___"),
+    trait_facet = factor(trait_facet, levels = rev(unique(trait_facet)))
+  )
+
+ggplot(
+  top_trait_plot_data,
+  aes(x = d_z, y = trait_facet, fill = direction)
+) +
+  geom_col(width = 0.75, show.legend = FALSE) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+  facet_grid(direction ~ method + approach, scales = "free_y", space = "free_y") +
+  scale_y_discrete(labels = function(x) sub("___.*$", "", x)) +
+  scale_fill_manual(values = c(Macho = "#B35C1E", Nice = "#1C7C7D")) +
+  labs(
+    title = "Top traits most consistently associated with each construct",
+    x = "Standardized mean shift across decades (d_z)",
+    y = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    panel.grid.major.y = element_blank()
+  )
+```
+
+The tables below give the same result in a more readable format. I split them into Macho and Nice so each side of the contrast can be scanned on its own.
+
+```{r compare-methods-top-traits-tables}
+top_trait_summary |>
+  filter(direction == "Macho") |>
+  select(method, approach, rank, word, mean_score, d_z, p_fdr, sig) |>
+  kable(
+    caption = "Top Macho-leaning traits across decades",
+    digits = 3
+  )
+
+top_trait_summary |>
+  filter(direction == "Nice") |>
+  select(method, approach, rank, word, mean_score, d_z, p_fdr, sig) |>
+  kable(
+    caption = "Top Nice-leaning traits across decades",
+    digits = 3
+  )
+```
+
+## Q3
+
+**Over time, does the valence of the traits most associated with each construct change?**
+
+Here I stay with traits only and work directly from the long data. Within each decade, I take the ten most Macho-leaning traits and the ten most Nice-leaning traits, compute their mean centered valence (`valence - 5`), and then track that mean over time. Zero is neutral, positive values are more positive, and negative values are more negative.
+
+```{r compare-methods-top-trait-valence}
+select_top_traits_by_decade <- function(data, top_n = 10) {
+  data |>
+    filter(
+      word %in% traits_warriner$word,
+      direction != "Neutral"
+    ) |>
+    mutate(
+      rank_score = if_else(direction == "Macho", score, -score)
+    ) |>
+    group_by(method, approach, decade, decade_num, direction) |>
+    slice_max(order_by = rank_score, n = top_n, with_ties = FALSE) |>
+    ungroup()
+}
+
+top_trait_decade_scores <- select_top_traits_by_decade(
+  method_scores_long,
+  top_n = 10
+)
+
+top_trait_valence_by_decade <- top_trait_decade_scores |>
+  group_by(method, approach, decade, decade_num, direction) |>
+  summarise(
+    n_traits = n(),
+    mean_valence_centered = mean(valence_centered, na.rm = TRUE),
+    mean_score = mean(score, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+The plot shows the decade-by-decade valence trajectory for those top traits under each method and approach.
+
+```{r compare-methods-top-trait-valence-plot}
+ggplot(
+  top_trait_valence_by_decade,
+  aes(
+    x = decade_num,
+    y = mean_valence_centered,
+    color = direction,
+    group = direction
+  )
+) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.6) +
+  facet_grid(approach ~ method) +
+  scale_color_manual(values = c(Macho = "#B35C1E", Nice = "#1C7C7D")) +
+  labs(
+    title = "Mean valence of the top 10 traits within each decade",
+    x = "Decade",
+    y = "Mean centered valence",
+    color = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    legend.position = "top"
+  )
+```
+
+To summarize the time pattern more compactly, I fit a simple linear trend within each method, approach, and direction. The slope tells us whether the top traits become more positive or more negative across time.
+
+```{r compare-methods-top-trait-valence-table}
+summarize_valence_trend <- function(data) {
+  model <- lm(mean_valence_centered ~ decade_num, data = data)
+  model_summary <- summary(model)
+  start_row <- data |> arrange(decade_num) |> slice_head(n = 1)
+  end_row <- data |> arrange(decade_num) |> slice_tail(n = 1)
+  
+  tibble(
+    start_decade = start_row$decade,
+    end_decade = end_row$decade,
+    start_mean = start_row$mean_valence_centered,
+    end_mean = end_row$mean_valence_centered,
+    change_across_period = end_mean - start_mean,
+    slope_per_decade = unname(coef(model)[["decade_num"]]),
+    p_value = model_summary$coefficients["decade_num", "Pr(>|t|)"]
+  )
+}
+
+top_trait_valence_trends <- top_trait_valence_by_decade |>
+  group_by(method, approach, direction) |>
+  group_modify(~ summarize_valence_trend(.x)) |>
+  ungroup()
+
+top_trait_valence_trends |>
+  kable(
+    caption = "Linear change in the valence of the top 10 traits within each decade",
+    digits = 3
+  )
+```
 ## Attractiveness
 
 This section intentionally keeps **both** Attractiveness workflows in the same document.
