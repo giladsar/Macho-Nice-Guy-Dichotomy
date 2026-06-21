@@ -51,21 +51,21 @@ More concretely, the current script does four things:
 
 Nevertheless, following Tessa et al.’s guidance, applying **orthogonal Procrustes** rotation can still be useful as a robustness check or for future extensions involving cross-decade word-trajectory analyses.
 
-::: callout-caution
-## [`The following code is written using the ds4psych: Data Science for Psychology: Natural Language workflow (https://ds4psych.com). Therefore, the toolset used here differs from Tessa’s.`]{.smallcaps}
+::: callout-cautio
+`The following code is written using the ds4psych: Data Science for Psychology: Natural Language workflow (https://ds4psych.com). Therefore, the toolset used here differs from Tessa’s.`{.smallcaps}
 :::
 
 ```{r loadPackages, echo = FALSE, message=FALSE}
 # ----------------------------------------------------
 #Packages
 library(tidyverse)
-library(vroom)       # fast reading of large txts
+library(vroom)       # fast reading of large texts
 library(stringr) # string manipulation
 library(purrr) # functional programming
 library(sweater) # for loading embeddings
 library(quanteda.textmodels) # PLS
 library(quanteda) # for text analysis
-library(embedplyr) # for working with embeddingsembedding manipulation
+library(embedplyr) # for working with embeddings manipulation
 library(knitr) # kable
 library(pls) # PLS
 
@@ -933,6 +933,297 @@ overall_summary_all |>
   kable(
     caption = "Overall Macho/Nice shift across all Warriner word-decade observations",
     digits = 3
+  )
+```
+## Q2
+
+**Which traits are most consistently pulled toward Macho and Nice Guy across decades?**
+
+To keep this interpretable, I focus here on the rated trait words rather than the full vocabulary. The goal is simple: average each trait's score across decades, keep the significant trait-level results, and then inspect the strongest positive effects (Macho) and strongest negative effects (Nice).
+
+```{r compare-methods-top-traits}
+apa_num <- function(x, digits = 2) {
+  ifelse(
+    is.na(x),
+    NA_character_,
+    sprintf(paste0("%.", digits, "f"), x)
+  )
+}
+
+apa_p <- function(p) {
+  case_when(
+    is.na(p) ~ NA_character_,
+    p < 0.001 ~ "< .001",
+    TRUE ~ sub("^0\\.", ".", sprintf("%.3f", round(p, 3)))
+  )
+}
+
+apa_ci <- function(low, high, digits = 2) {
+  ifelse(
+    is.na(low) | is.na(high),
+    NA_character_,
+    paste0(
+      "[",
+      sprintf(paste0("%.", digits, "f"), low),
+      ", ",
+      sprintf(paste0("%.", digits, "f"), high),
+      "]"
+    )
+  )
+}
+
+top_signed_traits <- function(data, top_n = 10) {
+  data |>
+    filter(sig != "No") |>
+    mutate(
+      sort_score = if_else(direction == "Macho", d_z, -d_z)
+    ) |>
+    group_by(method, approach, direction) |>
+    slice_max(order_by = sort_score, n = top_n, with_ties = FALSE) |>
+    arrange(method, approach, direction, desc(sort_score), .by_group = TRUE) |>
+    mutate(rank = row_number()) |>
+    ungroup()
+}
+
+top_trait_summary <- top_signed_traits(word_summary_traits, top_n = 10)
+
+prepare_trait_table <- function(data, focal_direction) {
+  data |>
+    filter(direction == focal_direction) |>
+    transmute(
+      Method = method,
+      Approach = approach,
+      Rank = rank,
+      Trait = word,
+      M = apa_num(mean_score, 2),
+      `95% CI` = apa_ci(ci_low, ci_high, 2),
+      d_z = apa_num(d_z, 2),
+      `p (FDR)` = apa_p(p_fdr)
+    )
+}
+```
+
+Before the plot, I keep just the top five traits per method, approach, and direction. If the same trait appears in several method panels, I show it only once within the Macho or Nice row and leave the point visible only in the columns where that trait belongs to the top five. I still use a forest-style plot so the mean trait score and its 95% confidence interval are both visible.
+
+```{r compare-methods-top-traits-plot}
+top_trait_plot_data <- top_signed_traits(word_summary_traits, top_n = 5)
+
+trait_row_order <- top_trait_plot_data |>
+  group_by(direction, word) |>
+  summarise(
+    n_panels = n(),
+    mean_priority = mean(sort_score, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  arrange(direction, desc(n_panels), desc(mean_priority), word) |>
+  mutate(direction_word = paste(direction, word, sep = "___"))
+
+top_trait_plot_data <- top_trait_plot_data |>
+  left_join(
+    trait_row_order |>
+      select(direction, word, direction_word),
+    by = c("direction", "word")
+  ) |>
+  mutate(
+    direction_word = factor(
+      direction_word,
+      levels = rev(trait_row_order$direction_word)
+    )
+  )
+
+ggplot(
+  top_trait_plot_data,
+  aes(x = mean_score, y = direction_word, color = direction)
+) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_segment(
+    aes(
+      x = ci_low,
+      xend = ci_high,
+      y = direction_word,
+      yend = direction_word
+    ),
+    linewidth = 0.8,
+    show.legend = FALSE
+  ) +
+  geom_point(size = 2.4, show.legend = FALSE) +
+  facet_grid(direction ~ method + approach, scales = "free_y", space = "free_y") +
+  scale_y_discrete(labels = function(x) sub("^[^_]+___", "", x)) +
+  scale_color_manual(values = c(Macho = "#B35C1E", Nice = "#1C7C7D")) +
+  labs(
+    title = "Top traits most consistently associated with each construct",
+    x = "Mean score across decades with 95% CI",
+    y = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    panel.grid.major.y = element_blank()
+  )
+```
+
+The tables below give the same result in a more readable format. I split them into Macho and Nice so each side of the contrast can be scanned on its own.
+
+```{r compare-methods-top-traits-tables}
+prepare_trait_table(top_trait_summary, "Macho") |>
+  kable(
+    caption = "Top Macho-leaning traits across decades",
+    align = c("l", "l", "r", "l", "r", "l", "r", "l")
+  )
+
+prepare_trait_table(top_trait_summary, "Nice") |>
+  kable(
+    caption = "Top Nice-leaning traits across decades",
+    align = c("l", "l", "r", "l", "r", "l", "r", "l")
+  )
+```
+
+## Q3
+
+**Over time, does the valence of the traits most associated with each construct change?**
+
+Here I stay with traits only and work directly from the long data. Within each decade, I take the ten most Macho-leaning traits and the ten most Nice-leaning traits, compute their mean centered valence (`valence - 5`), and then track that mean over time. Zero is neutral, positive values are more positive, and negative values are more negative.
+
+```{r compare-methods-top-trait-valence}
+select_top_traits_by_decade <- function(data, top_n = 10) {
+  data |>
+    filter(
+      word %in% traits_warriner$word,
+      direction != "Neutral"
+    ) |>
+    mutate(
+      rank_score = if_else(direction == "Macho", score, -score)
+    ) |>
+    group_by(method, approach, decade, decade_num, direction) |>
+    slice_max(order_by = rank_score, n = top_n, with_ties = FALSE) |>
+    ungroup()
+}
+
+top_trait_decade_scores <- select_top_traits_by_decade(
+  method_scores_long,
+  top_n = 10
+)
+
+top_trait_valence_by_decade <- top_trait_decade_scores |>
+  group_by(method, approach, decade, decade_num, direction) |>
+  summarise(
+    n_traits = n(),
+    mean_valence_centered = mean(valence_centered, na.rm = TRUE),
+    sd_valence_centered = sd(valence_centered, na.rm = TRUE),
+    se_valence = if_else(
+      n_traits > 1,
+      sd_valence_centered / sqrt(n_traits),
+      NA_real_
+    ),
+    t_crit = if_else(
+      n_traits > 1,
+      qt(0.975, df = n_traits - 1),
+      NA_real_
+    ),
+    ci_low = mean_valence_centered - (t_crit * se_valence),
+    ci_high = mean_valence_centered + (t_crit * se_valence),
+    mean_score = mean(score, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+The plot shows the decade-by-decade valence trajectory for those top traits under each method and approach. The shaded ribbons are 95% confidence intervals around the decade-specific mean valence.
+
+```{r compare-methods-top-trait-valence-plot}
+ggplot(
+  top_trait_valence_by_decade,
+  aes(
+    x = decade_num,
+    y = mean_valence_centered,
+    color = direction,
+    fill = direction,
+    group = direction
+  )
+) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_ribbon(
+    aes(ymin = ci_low, ymax = ci_high),
+    alpha = 0.15,
+    color = NA,
+    show.legend = FALSE
+  ) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.6) +
+  facet_grid(approach ~ method) +
+  scale_color_manual(values = c(Macho = "#B35C1E", Nice = "#1C7C7D")) +
+  scale_fill_manual(values = c(Macho = "#B35C1E", Nice = "#1C7C7D")) +
+  labs(
+    title = "Mean valence of the top 10 traits within each decade",
+    x = "Decade",
+    y = "Mean centered valence",
+    color = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    legend.position = "top"
+  )
+```
+
+To summarize the time pattern more compactly, I fit a simple linear trend within each method, approach, and direction. The slope tells us whether the top traits become more positive or more negative across time.
+
+```{r compare-methods-top-trait-valence-table}
+summarize_valence_trend <- function(data) {
+  model <- lm(mean_valence_centered ~ decade_num, data = data)
+  model_summary <- summary(model)
+  model_ci <- confint(model)["decade_num", ]
+  start_row <- data |> arrange(decade_num) |> slice_head(n = 1)
+  end_row <- data |> arrange(decade_num) |> slice_tail(n = 1)
+  
+  tibble(
+    start_decade = start_row$decade,
+    start_mean = start_row$mean_valence_centered,
+    start_ci_low = start_row$ci_low,
+    start_ci_high = start_row$ci_high,
+    end_decade = end_row$decade,
+    end_mean = end_row$mean_valence_centered,
+    end_ci_low = end_row$ci_low,
+    end_ci_high = end_row$ci_high,
+    change_across_period = end_mean - start_mean,
+    slope_per_decade = unname(coef(model)[["decade_num"]]),
+    slope_ci_low = unname(model_ci[1]),
+    slope_ci_high = unname(model_ci[2]),
+    p_value = model_summary$coefficients["decade_num", "Pr(>|t|)"]
+  )
+}
+
+top_trait_valence_trends <- top_trait_valence_by_decade |>
+  group_by(method, approach, direction) |>
+  group_modify(~ summarize_valence_trend(.x)) |>
+  ungroup()
+
+top_trait_valence_trends |>
+  transmute(
+    Method = method,
+    Approach = approach,
+    Direction = direction,
+    Start = paste0(
+      start_decade,
+      ": ",
+      apa_num(start_mean, 2),
+      " ",
+      apa_ci(start_ci_low, start_ci_high, 2)
+    ),
+    End = paste0(
+      end_decade,
+      ": ",
+      apa_num(end_mean, 2),
+      " ",
+      apa_ci(end_ci_low, end_ci_high, 2)
+    ),
+    `Change in M` = apa_num(change_across_period, 2),
+    `Slope b` = apa_num(slope_per_decade, 3),
+    `95% CI for b` = apa_ci(slope_ci_low, slope_ci_high, 3),
+    p = apa_p(p_value)
+  ) |>
+  kable(
+    caption = "Linear change in the valence of the top 10 traits within each decade",
+    align = c("l", "l", "l", "l", "l", "r", "r", "l", "l")
   )
 ```
 ## Attractiveness
