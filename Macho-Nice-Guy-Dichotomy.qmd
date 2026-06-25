@@ -410,7 +410,6 @@ length(macho_guy_words_injected)
 
 # DDR
 
-
 I next build the decade-specific semantic representations for *Macho* and *Nice Guy*. In this document I use the term **DDR** simply to mean the vector that summarizes one construct in one decade.
 
 The code creates four such vectors for each decade:
@@ -439,11 +438,13 @@ Nice ←———— word ————→ Macho
 This scale is ranging form 0 (nice) to 1 (macho). Higher anchored scores indicate a position closer to the Macho pole, whereas lower scores indicate a position closer to the Nice pole. This method therefore treats Macho and Nice as two ends of a single semantic dimension and therefore dichatomic.
 
 ## PLS
+
 The third scoring method is the PLS-based Macho–Nice axis. In this approach, a supervised Partial Least Squares model is trained to distinguish Macho seed words from Nice seed words. Macho words are coded as +1, and Nice words are coded as -1. The resulting one-component PLS projection is used as a supervised semantic axis that maximally separates the two word groups. Each word in the decade-specific embedding space is then scored by its cosine similarity to this PLS-derived axis. Positive PLS scores indicate alignment with the Macho-oriented side of the supervised axis, whereas negative scores indicate alignment with the Nice-oriented side.
 
 The three methods therefore answer related but non-identical questions. The pairwise cosine-delta method asks whether a word is more similar to Macho than to Nice. The anchored method asks where a word lies on the bipolar Nice–Macho continuum. The PLS method asks how strongly a word aligns with a supervised axis learned from the Macho versus Nice seed-word distinction. Because these methods produce scores using different geometric procedures, their raw magnitudes should not be interpreted as directly equivalent.
 
 Instead, they should be compared in terms of directional agreement, rank-order similarity, overlap in high-scoring and low-scoring words, and associations with external lexical variables.
+
 ```{r pls-helper}
 make_pls_macho_nice_axis <- function(embeddings,
                                      macho_words,
@@ -678,15 +679,13 @@ warriner_scores_omit <- lapply(warriner_with_scores, function(df) {
 
 ```
 
-
-
 # RQs
+
 ## Q1
 
 **Is there, overall, a difference in association across 200 years between Macho and Nice Guy?**
 
 Here, positive values mean relatively stronger Macho association and negative values mean relatively stronger Nice association. So here we'll see whether the delta, anchored pole loading and pls changes, first overall and then by decade.
-
 
 ```{r compare-methods-prepare-long}
 method_scores_long <- bind_rows(warriner_scores_omit, .id = "decade") |>
@@ -700,12 +699,15 @@ method_scores_long <- bind_rows(warriner_scores_omit, .id = "decade") |>
     anchored_nudge  = 2 * macho_vs_nice_nudge - 1,
     anchored_inject = 2 * macho_vs_nice_inject - 1,
 
+    
+    #Renaming for convience sake 
     pairwise_nudge  = cosine_delta_nudge,
     pairwise_inject = cosine_delta_inject,
 
     pls_nudge  = pls_nudge,
     pls_inject = pls_inject
   ) |>
+  rename()
   select(
     word, id, valence, arousal, dominance,
     decade, decade_num,
@@ -742,7 +744,6 @@ method_scores_long <- bind_rows(warriner_scores_omit, .id = "decade") |>
   filter(is.finite(score))
 
 ```
-
 
 ```{r compare-methods-helper}
 one_sample_score_summary <- function(x) {
@@ -784,6 +785,7 @@ one_sample_score_summary <- function(x) {
   }
 } 
 ```
+
 ### Word-level analysis
 
 This asks: for each word, is its average score across decades reliably above or below zero?
@@ -847,6 +849,7 @@ word_summary_all |>
   )
 
 ```
+
 ### Decade-level analysis
 
 This asks: within each decade, are Warriner words on average shifted toward Macho or Nice?
@@ -904,7 +907,6 @@ decade_summary_all |>
 
 ```
 
-
 ### Overall method-level summary
 
 This gives one result per `method × approach` across all word-decade observations.
@@ -935,6 +937,7 @@ overall_summary_all |>
     digits = 3
   )
 ```
+
 ## Q2
 
 **Which traits are most consistently pulled toward Macho and Nice Guy across decades?**
@@ -1226,6 +1229,7 @@ top_trait_valence_trends |>
     align = c("l", "l", "l", "l", "l", "r", "r", "l", "l")
   )
 ```
+
 ## Attractiveness
 
 This section intentionally keeps **both** Attractiveness workflows in the same document.
@@ -1300,7 +1304,6 @@ for (i in seq_along(ENGall_model)) {
 names(Attractiveness_DDR_injected_by_decade) <- decades
 names(Attractiveness_DDR_nudge_by_decade) <- decades
 ```
-
 
 ::: callout-note
 ## What now
