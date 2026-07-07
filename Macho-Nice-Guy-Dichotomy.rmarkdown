@@ -1307,180 +1307,37 @@ now after we constructed our attractiveness DDR, lets inspect the results of the
 
 ```{r}
 
-# raw computation:
-cosine_scores_attractives_decades<- vector("list", length(ENGall_model))
-pls_scores_attractives_decades<- vector("list", length(ENGall_model))
-anchor_scores_attractives_decades<- vector("list", length(ENGall_model))
-# cleaned versions: 
-cosine_clean_attractives_decades<- vector("list", length(ENGall_model))
-pls_clean_attractives_decades<- vector("list", length(ENGall_model))
-anchor_clean_attractives_decades<- vector("list", length(ENGall_model))
-
-
-for (i in seq_along(ENGall_model)) {
-  # Method 1: Pairwise Deltas 
-  cosine_scores_attractives_decades[[i]] <- rbind(
-    macho_nudge_embds = Macho_DDR_nudge_by_decade[[i]],
-    nice_nudge_embds  = Nice_DDR_nudge_by_decade[[i]],
-    macho_inject_embds = Macho_DDR_injected_by_decade[[i]],
-    nice_inject_embds  = Nice_DDR_injected_by_decade[[i]])|> 
+# Method 1: Pairwise Deltas 
+  cosine_scores_attractives<- rbind(
+  macho_nudge_embds = Macho_DDR_nudge_by_decade[[i]],
+  nice_nudge_embds  = Nice_DDR_nudge_by_decade[[i]],
+  macho_inject_embds = Macho_DDR_injected_by_decade[[i]],
+  nice_inject_embds  = Nice_DDR_injected_by_decade[[i]])|> 
     get_sims(
       list(
         "attractiveness_cos_nudge" = Attractiveness_DDR_nudge_by_decade[[i]],
         "attractiveness_cos_inject" = Attractiveness_DDR_injected_by_decade[[i]]
-      ),  
+      ), 
       method = "cosine"
-    ) |> 
-    as.data.frame() |>
-    mutate(
-      construct = c(
-        "macho_nudge_embds",
-        "nice_nudge_embds",
-        "macho_inject_embds",
-        "nice_inject_embds"
-      ),
-      .before = 1
-    )|>
+    ) |>
+  as.data.frame() |>
+  mutate(
+    construct = c(
+      "macho_nudge_embds",
+      "nice_nudge_embds",
+      "macho_inject_embds",
+      "nice_inject_embds"
+    ),
+    .before = 1
+  )|> 
+  mutate(
     
     # notice that the data strcuture is less complaing with inject x nudge cells intersect.
-    mutate( 
-      construct_type = case_when(
-        str_detect(construct, "nice")  ~ "nice",
-        str_detect(construct, "macho") ~ "macho"
-        
-      ),
-      approach = case_when(
-        str_detect(construct, "nudge")  ~ "nudge",
-        str_detect(construct, "inject") ~ "inject"
-      ),
-      cos_sim_attractive = case_when(
-        approach == "nudge"  ~ attractiveness_cos_nudge,
-        approach == "inject" ~ attractiveness_cos_inject
-      )
-    ) |>
-    select(approach, construct_type, cos_sim_attractive) |>
-    pivot_wider(
-      names_from = construct_type,
-      values_from = cos_sim_attractive
-    ) |> 
-    mutate( 
-      attractive_delta = macho - nice
-    )
-  # Method 2: Anchored Macho-Nice Axis
-  anchor_scores_attractives_decades[[i]] <- rbind(
-    Attractivness_inject= Attractiveness_DDR_injected_by_decade[[i]], 
-    Attractivness_nudge_ddr = Attractiveness_DDR_nudge_by_decade[[i]]
-  ) |>
-    get_sims(
-      list(
-        "macho_vs_nice_nudge" = list(
-          pos = Macho_DDR_nudge_by_decade[[i]],
-          neg = Nice_DDR_nudge_by_decade[[i]]
-        ),  
-        "macho_vs_nice_inject" = list(
-          pos = Macho_DDR_injected_by_decade[[i]],
-          neg = Nice_DDR_injected_by_decade[[i]]
-        )
-      ), 
-      method = "anchored"
-    ) |> 
-    as.data.frame() |>
-    mutate(
-      construct = c(
-        "Attractivness_inject",
-        "Attractivness_nudge"
-      ),
-      .before = 1
-    )
+    cosine_delta_nudge = attractiveness_cos_nudge - macho_cos_nudge,
+    cosine_delta_inject = attractiveness_cos_inject - macho_cos_inject
+  ) 
   
-  # Method 3: PLS Axis 
-  
-  #reusing the object already created in the previous sections (namely, r DDRs,warning=FALSE)
-   
-  pls_scores_attractives_decades[[i]] <- rbind(
-    Attractivness_inject= Attractiveness_DDR_injected_by_decade[[i]], 
-    Attractivness_nudge_ddr = Attractiveness_DDR_nudge_by_decade[[i]]
-  ) |>  
-    get_sims(
-      list(
-        "pls_nudge"  = pls_nudge_axis_by_decade[[i]],
-        "pls_inject" = pls_inject_axis_by_decade[[i]]
-      ), 
-      method = "cosine"
-    ) |> 
-    as.data.frame() |>
-    mutate(
-      construct = c(
-        "Attractivness_nudge_ddr",
-        "Attractivness_inject"
-      ),
-      .before = 1
-   )
-  
-  
-  
-  # Organizing data structure: 
-  
-  #  each iteration I want two values: delta cosimilarity for each appeaoch 
-  cosine_clean_attractives_decades[[i]]<- cosine_scores_attractives_decades[[i]] |>
-    mutate( 
-      nudge_delta =cosine_scores_attractives_decades[[i]] |>
-        filter(approach == "nudge") |>
-        pull(attractive_delta),
-      inject_delta =cosine_scores_attractives_decades[[i]] |>
-        filter(approach == "inject") |>
-        pull(attractive_delta)
-    ) |>
-    select(nudge_delta, inject_delta) |>
-    slice(1)
-  
-  anchor_clean_attractives_decades[[i]]<- anchor_scores_attractives_decades[[i]]|>
-    mutate( 
-      anchor_inject =anchor_scores_attractives_decades[[i]] |>
-        filter(construct == "Attractivness_inject") |>
-        pull(macho_vs_nice_inject),
-      anchor_nudge =anchor_scores_attractives_decades[[i]] |>
-        filter(construct == "Attractivness_nudge") |>
-        pull(macho_vs_nice_nudge)
-    ) |>
-    select(anchor_nudge, anchor_inject) |>
-    slice(1)
 
-  pls_clean_attractives_decades[[i]] <- pls_scores_attractives_decades[[i]] |>
-    mutate( 
-      pls_inject =pls_scores_attractives_decades[[i]] |>
-        filter(construct == "Attractivness_inject") |>
-        pull(pls_inject),
-      pls_nudge =pls_scores_attractives_decades[[i]] |>
-        filter(construct == "Attractivness_nudge_ddr") |>
-        pull(pls_nudge)
-    ) |>
-    select(pls_nudge, pls_inject) |>
-    slice(1)
-} 
-   # summarise and join the cleaned listed with decade as an identifier
-cosine_clean_df <- bind_rows(
-  cosine_clean_attractives_decades,
-  .id = "decade_id"
-)|>
-  mutate(
-    decade = decades[as.integer(decade_id)],
-    .before=1
-  )
-
-anchor_clean_df <- bind_rows(
-  anchor_clean_attractives_decades,
-  .id = "decade_id"
-)
-
-pls_clean_df <- bind_rows(
-  pls_clean_attractives_decades,
-  .id = "decade_id"
-)
-
-attractiveness_decade_summary <- cosine_clean_df |>
-  left_join(anchor_clean_df, by = "decade_id") |>
-  left_join(pls_clean_df, by = "decade_id")
 
 ```
 
@@ -1513,3 +1370,4 @@ another articles talks about the prefrance of a women in terms of sxual activity
 
 
 ```
+
