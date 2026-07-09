@@ -55,6 +55,9 @@ Nevertheless, following Tessa et al.’s guidance, applying **orthogonal Procrus
 `The following code is written using the ds4psych: Data Science for Psychology: Natural Language workflow (https://ds4psych.com). Therefore, the toolset used here differs from Tessa’s.`{.smallcaps}
 :::
 
+
+
+# Start 
 ```{r loadPackages, echo = FALSE, message=FALSE}
 # ----------------------------------------------------
 #Packages
@@ -97,7 +100,11 @@ warriner_path <- "wordstim/allwrdnorms_warriner.csv"
 
 As an alternative, we might consider NRC VAD (S. M. Mohammad, 2018), which contains 20,007 words with ratings between 0 and 1 for valence, arousal, and dominance.
 
-```{r}
+
+### Men Types Word List
+
+
+```{r MenTypesWordBank}
 
 ## List of traits:
 
@@ -109,11 +116,11 @@ nice_guy_words <- c(
   "kind", "gentle", "caring", "sensitive", "considerate", "respectful",
   "supportive", "understanding", "warm", "affectionate",
   "polite", "reliable", "faithful", "honest", "thoughtful",
-  "attentive", "humble", "nice","whipped", "romantic"
+  "attentive", "humble", "nice"
 )
 macho_guy_words <- c(
    "dominant", "assertive", "confident", "tough", "strong", "decisive",
-  "bold", "powerful", "competitive", "aggressive", "independent", "unemotional",
+  "bold", "powerful", "competitive", "aggressive",  "unemotional",
   "fearless","alpha", "commanding", "ambitious", "macho"
 )
 
@@ -153,10 +160,21 @@ To interpret these trait bundles as referring to men rather than to personality 
  male_anchors <-  c("man","men","male","guy")  #Question: should we add 'boy'? 
  female_anchors <-  c("woman", "women", "female","girl")
 
+ build_ddr <- function(embeddings, words) {
+  available_words <- words[words %in% rownames(embeddings)]
+
+  if (length(available_words) == 0) {
+    stop("No construct words are available in this decade's embedding space.")
+  }
+
+  predict(embeddings, available_words) |>
+    average_embedding()
+}
+
  
  build_male_female_axis <- function(embeddings) {
-  male_ddr <- predict(embeddings, male_anchors) |> average_embedding()
-  female_ddr <- predict(embeddings, female_anchors) |> average_embedding()
+  male_ddr <- build_ddr(embeddings, male_anchors)
+  female_ddr <- build_ddr(embeddings, female_anchors)
   male_ddr - female_ddr
 }
 
@@ -445,7 +463,7 @@ The three methods therefore answer related but non-identical questions. The pair
 
 Instead, they should be compared in terms of directional agreement, rank-order similarity, overlap in high-scoring and low-scoring words, and associations with external lexical variables.
 
-```{r pls-helper}
+```{r helpers-ddr}
 make_pls_macho_nice_axis <- function(embeddings,
                                      macho_words,
                                      nice_words,
@@ -524,21 +542,23 @@ for (i in seq_along(ENGall_model)) {
   
   # Nudged approach
   Nice_DDR_nudge_by_decade[[i]] <- masculinity_nudge(
-    ddr_vec = average_embedding(predict(embeddings, nice_guy_words)),
+    ddr_vec = build_ddr(embeddings, nice_guy_words),
     E = embeddings
   ) 
   
   Macho_DDR_nudge_by_decade[[i]] <- masculinity_nudge(
-    ddr_vec = average_embedding(predict(embeddings, macho_guy_words)),
+    ddr_vec = build_ddr(embeddings, macho_guy_words),
     E = embeddings
   ) 
   
   # Inject approach
-  Nice_DDR_injected_by_decade[[i]] <- average_embedding(
-    predict(embeddings, nice_guy_words_injected)
+  Nice_DDR_injected_by_decade[[i]] <- build_ddr(
+    embeddings,
+    nice_guy_words_injected
   )
-  Macho_DDR_injected_by_decade[[i]] <- average_embedding(
-    predict(embeddings, macho_guy_words_injected) 
+  Macho_DDR_injected_by_decade[[i]] <- build_ddr(
+    embeddings,
+    macho_guy_words_injected
   )
   
   # Method 1: Pairwise Deltas 
@@ -687,11 +707,13 @@ warriner_scores_omit <- lapply(warriner_with_scores, function(df) {
 
 Here, positive values mean relatively stronger Macho association and negative values mean relatively stronger Nice association. So here we'll see whether the delta, anchored pole loading and pls changes, first overall and then by decade.
 
+In this first section, the tables are used mainly as **descriptive screening summaries**: they show which words, methods, and decades lean toward Macho or Nice on average. The manuscript's formal **longitudinal** inference about change over time is carried out later in the sections that explicitly model decade-to-decade trajectories with tracking-aware weighted `GLS + AR(1)` models.
+
 ```{r compare-methods-prepare-long}
 method_scores_long <- bind_rows(warriner_scores_omit, .id = "decade") |>
   mutate(
-    decade = factor(decade, levels = as.character(decades)),
-    decade_num = as.numeric(decade),
+    decade = as.integer(decade),
+    decade_num = decade,
 
     # Anchored scores from get_sims(method = "anchored") are 0-1:
     # 0 = Nice pole, .5 = midpoint, 1 = Macho pole.
@@ -746,8 +768,18 @@ method_scores_long <- bind_rows(warriner_scores_omit, .id = "decade") |>
 ```
 
 ```{r compare-methods-helper}
-one_sample_score_summary <- function(x) {
+one_sample_score_summary <- function(x, method) {
   x <- x[is.finite(x)]
+  method <- unique(method)
+
+  if (length(method) != 1) {
+    stop("one_sample_score_summary() expects exactly one method label per group.")
+  }
+
+  null_value <- case_when(
+    method == "Anchored" && all(x >= 0 & x <= 1, na.rm = TRUE) ~ 0.5,
+    TRUE ~ 0
+  )
   
   n <- length(x)
   mean_score <- mean(x)
@@ -755,17 +787,18 @@ one_sample_score_summary <- function(x) {
   se <- if (n > 1) sd_score / sqrt(n) else NA_real_
    
   if (n > 1 && is.finite(sd_score) && sd_score > 0) {
-    test <- t.test(x, mu = 0)
+    test <- t.test(x, mu = null_value)
      
     tibble(
       n = n,
       mean_score = mean_score,
       sd_score = sd_score,
       se = se,
+      null_value = null_value,
       t_value = unname(test$statistic),
       df = unname(test$parameter),
       p_value = test$p.value,
-      d_z = mean_score / sd_score,
+      d_z = (mean_score - null_value) / sd_score,
       ci_low = unname(test$conf.int[1]),
       ci_high = unname(test$conf.int[2])
     )
@@ -775,6 +808,7 @@ one_sample_score_summary <- function(x) {
       mean_score = mean_score,
       sd_score = sd_score,
       se = se,
+      null_value = null_value,
       t_value = NA_real_,
       df = NA_real_,
       p_value = NA_real_,
@@ -800,7 +834,7 @@ compare_nice_macho_words <- function(data, only_traits = FALSE) {
 
   data |>
     group_by(method, approach, word) |>
-    group_modify(~ one_sample_score_summary(.x$score)) |>
+    group_modify(~ one_sample_score_summary(.x$score, method = .y$method)) |>
     ungroup() |>
     left_join(
       data |>
@@ -864,7 +898,7 @@ compare_overall_by_decade <- function(data, only_traits = FALSE) {
 
   data |>
     group_by(method, approach, decade) |>
-    group_modify(~ one_sample_score_summary(.x$score)) |>
+    group_modify(~ one_sample_score_summary(.x$score, method = .y$method)) |>
     ungroup() |>
     mutate(
       direction = case_when(
@@ -914,7 +948,7 @@ This gives one result per `method × approach` across all word-decade observatio
 ```{r compare-methods-overall}
 overall_summary_all <- method_scores_long |>
   group_by(method, approach) |>
-  group_modify(~ one_sample_score_summary(.x$score)) |>
+  group_modify(~ one_sample_score_summary(.x$score, method = .y$method)) |>
   ungroup() |>
   mutate(
     direction = case_when(
@@ -1127,13 +1161,25 @@ top_trait_valence_by_decade <- top_trait_decade_scores |>
     ci_high = mean_valence_centered + (t_crit * se_valence),
     mean_score = mean(score, na.rm = TRUE),
     .groups = "drop"
-  )
+  ) |>
+  left_join(
+    avwords_n_decade_df |>
+      select(decade, n_avwords, prop_avail),
+    by = "decade"
+  ) |>
+  group_by(method, approach, direction) |>
+  arrange(decade, .by_group = TRUE) |>
+  mutate(
+    time_decades = (decade - min(decade)) / 10,
+    decade_index = row_number()
+  ) |>
+  ungroup()
 ```
 
 The plot shows the decade-by-decade valence trajectory for those top traits under each method and approach. The shaded ribbons are 95% confidence intervals around the decade-specific mean valence.
 
 ```{r compare-methods-top-trait-valence-plot}
-ggplot(
+warriner_valence_plot <- ggplot(
   top_trait_valence_by_decade,
   aes(
     x = decade_num,
@@ -1168,36 +1214,111 @@ ggplot(
   )
 ```
 
-To summarize the time pattern more compactly, I fit a simple linear trend within each method, approach, and direction. The slope tells us whether the top traits become more positive or more negative across time.
+Before fitting the formal trend model, I first check whether these decade-level valence trajectories show **tracking**. The issue is the same as in the split analysis: if adjacent decades still move together after a basic linear trend is removed, then a standard independent-errors model will understate uncertainty. That would make the valence shift look more precise than it really is.
+
+I therefore fit a simple OLS line within each `method x approach x direction` panel only for diagnostic purposes, and I inspect the lag-1 residual correlation and the largest studentized residual. Positive lag-1 correlations indicate decade-to-decade carryover, whereas very large studentized residuals indicate a potentially influential decade.
+
+```{r compare-methods-top-trait-valence-tracking}
+top_trait_valence_tracking_df <- top_trait_valence_by_decade |>
+  group_by(method, approach, direction) |>
+  group_modify(~ {
+    fit <- lm(mean_valence_centered ~ time_decades, data = .x)
+
+    tibble(
+      decade = .x$decade,
+      residual = resid(fit),
+      studentized = rstudent(fit)
+    )
+  }) |>
+  ungroup()
+
+top_trait_valence_tracking_summary <- top_trait_valence_tracking_df |>
+  group_by(method, approach, direction) |>
+  summarise(
+    lag1_residual_correlation = cor(residual[-n()], residual[-1]),
+    max_abs_studentized = max(abs(studentized), na.rm = TRUE),
+    n_abs_studentized_gt3 = sum(abs(studentized) > 3, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+kable(
+  top_trait_valence_tracking_summary,
+  digits = 3,
+  caption = "Residual diagnostics for tracking in the top-trait valence trajectories"
+)
+```
+
+```{r compare-methods-top-trait-valence-tracking-plot}
+ggplot(
+  top_trait_valence_tracking_df,
+  aes(x = decade, y = residual)
+) +
+  geom_hline(yintercept = 0, linewidth = 0.4) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.4) +
+  facet_grid(direction + approach ~ method, scales = "free_y") +
+  scale_x_continuous(
+    breaks = seq(1800, 1990, by = 20)
+  ) +
+  labs(
+    title = "Residual Tracking Check for Top-Trait Valence Trends",
+    x = "Decade",
+    y = "OLS residual"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+Once tracking is acknowledged, the more appropriate inferential model is a **weighted GLS with AR(1)**. Here each panel contributes one decade-level mean valence per decade. I use `n_avwords` as the weighting variable so decades with less lexical information contribute less strongly, and I use `AR(1)` so adjacent decades are allowed to remain correlated.
+
+The table below reports the **linear GLS trend** for each panel. The slope is interpreted per decade because `time_decades` is measured in 10-year units. The confidence interval is a Wald interval around that slope estimate.
 
 ```{r compare-methods-top-trait-valence-table}
-summarize_valence_trend <- function(data) {
-  model <- lm(mean_valence_centered ~ decade_num, data = data)
-  model_summary <- summary(model)
-  model_ci <- confint(model)["decade_num", ]
-  start_row <- data |> arrange(decade_num) |> slice_head(n = 1)
-  end_row <- data |> arrange(decade_num) |> slice_tail(n = 1)
-  
-  tibble(
-    start_decade = start_row$decade,
-    start_mean = start_row$mean_valence_centered,
-    start_ci_low = start_row$ci_low,
-    start_ci_high = start_row$ci_high,
-    end_decade = end_row$decade,
-    end_mean = end_row$mean_valence_centered,
-    end_ci_low = end_row$ci_low,
-    end_ci_high = end_row$ci_high,
-    change_across_period = end_mean - start_mean,
-    slope_per_decade = unname(coef(model)[["decade_num"]]),
-    slope_ci_low = unname(model_ci[1]),
-    slope_ci_high = unname(model_ci[2]),
-    p_value = model_summary$coefficients["decade_num", "Pr(>|t|)"]
-  )
-}
-
 top_trait_valence_trends <- top_trait_valence_by_decade |>
   group_by(method, approach, direction) |>
-  group_modify(~ summarize_valence_trend(.x)) |>
+  group_modify(~ {
+    fit <- nlme::gls(
+      mean_valence_centered ~ time_decades,
+      data = .x,
+      correlation = nlme::corAR1(form = ~ decade_index),
+      weights = nlme::varFixed(~ I(1 / n_avwords)),
+      method = "ML"
+    )
+
+    fit_table <- summary(fit)$tTable
+    slope_estimate <- unname(fit_table["time_decades", "Value"])
+    slope_se <- unname(fit_table["time_decades", "Std.Error"])
+
+    start_row <- .x |>
+      arrange(decade) |>
+      slice_head(n = 1)
+
+    end_row <- .x |>
+      arrange(decade) |>
+      slice_tail(n = 1)
+
+    tibble(
+      start_decade = start_row$decade,
+      start_mean = start_row$mean_valence_centered,
+      start_ci_low = start_row$ci_low,
+      start_ci_high = start_row$ci_high,
+      end_decade = end_row$decade,
+      end_mean = end_row$mean_valence_centered,
+      end_ci_low = end_row$ci_low,
+      end_ci_high = end_row$ci_high,
+      change_across_period = end_row$mean_valence_centered - start_row$mean_valence_centered,
+      slope_per_decade = slope_estimate,
+      slope_ci_low = slope_estimate - qnorm(0.975) * slope_se,
+      slope_ci_high = slope_estimate + qnorm(0.975) * slope_se,
+      p_value = fit_table["time_decades", "p-value"],
+      ar1_phi = unname(
+        coef(fit$modelStruct$corStruct, unconstrained = FALSE)
+      )
+    )
+  }) |>
   ungroup()
 
 top_trait_valence_trends |>
@@ -1222,15 +1343,417 @@ top_trait_valence_trends |>
     `Change in M` = apa_num(change_across_period, 2),
     `Slope b` = apa_num(slope_per_decade, 3),
     `95% CI for b` = apa_ci(slope_ci_low, slope_ci_high, 3),
+    `AR(1) phi` = apa_num(ar1_phi, 3),
     p = apa_p(p_value)
   ) |>
   kable(
-    caption = "Linear change in the valence of the top 10 traits within each decade",
-    align = c("l", "l", "l", "l", "l", "r", "r", "l", "l")
+    caption = "Weighted GLS linear change in the valence of the top 10 traits within each decade",
+    align = c("l", "l", "l", "l", "l", "r", "r", "l", "r", "l")
   )
 ```
 
-## Attractiveness
+Because historical change may be curved rather than perfectly linear, I also compare the linear GLS model to a **3 df natural spline GLS model** for each panel. A small likelihood-ratio p-value means the curved model fits better than a single straight line.
+
+```{r compare-methods-top-trait-valence-spline}
+top_trait_valence_spline_table <- top_trait_valence_by_decade |>
+  group_by(method, approach, direction) |>
+  group_modify(~ {
+    fit_linear <- nlme::gls(
+      mean_valence_centered ~ time_decades,
+      data = .x,
+      correlation = nlme::corAR1(form = ~ decade_index),
+      weights = nlme::varFixed(~ I(1 / n_avwords)),
+      method = "ML"
+    )
+
+    fit_spline <- nlme::gls(
+      mean_valence_centered ~ splines::ns(time_decades, df = 3),
+      data = .x,
+      correlation = nlme::corAR1(form = ~ decade_index),
+      weights = nlme::varFixed(~ I(1 / n_avwords)),
+      method = "ML"
+    )
+
+    model_comparison <- anova(fit_linear, fit_spline)
+
+    tibble(
+      linear_aic = AIC(fit_linear),
+      spline_aic = AIC(fit_spline),
+      lr_p_value = model_comparison$`p-value`[2],
+      better_model = case_when(
+        AIC(fit_spline) + 2 < AIC(fit_linear) ~ "Spline",
+        AIC(fit_linear) + 2 < AIC(fit_spline) ~ "Linear",
+        TRUE ~ "Similar fit"
+      )
+    )
+  }) |>
+  ungroup()
+
+top_trait_valence_spline_table |>
+  kable(
+    digits = 4,
+    caption = "Spline sensitivity checks for the top-trait valence trajectories"
+  )
+```
+
+### Semantic Valence DDR Alternative
+
+The Warriner-based analysis above uses **external valence ratings** that stay fixed across all decades. That is useful, but it also means the valence signal itself does not change historically. As a complementary check, I now build a **decade-specific valence DDR** directly inside each embedding space using straightforward positive-evaluative words such as *good*, *great*, and *wonderful*.
+
+This alternative asks a different question: rather than asking whether the top traits carry high modern valence ratings, it asks where a **positive semantic prototype** falls on the Macho-Nice dimension in each decade. To keep the subsection concise and directly comparable across methods, I use the **nudge-based** Macho-Nice representations and compare the three scoring families only:
+
+- `Pairwise delta`
+- `Anchored`
+- `PLS`
+
+Because the valence DDR is an average over several seed words, I show uncertainty by **bootstrapping the seed list within each decade**. In each bootstrap sample, the valence words are resampled with replacement, the DDR is rebuilt, and the score is recomputed. The ribbons in the plot are therefore approximate **95% bootstrap intervals** around the valence-construct score for that decade.
+
+```{r valence-ddr-words}
+valence_words <- c(
+  "good",
+  "great",
+  "excellent",
+  "pleasant",
+  "wonderful",
+  "lovely",
+  "positive",
+  "favorable",
+  "admirable",
+  "delightful"
+)
+
+valence_word_coverage <- map_dfr(seq_along(ENGall_model), function(i) {
+  embeddings <- ENGall_model[[i]]
+  embeddings <- embeddings[magnitude(embeddings) != 0, ]
+
+  tibble(
+    decade = decades[i],
+    n_valence_words_available = sum(
+      valence_words %in% rownames(embeddings)
+    )
+  )
+})
+
+kable(
+  valence_word_coverage,
+  caption = "Available positive-valence seed words per decade for the semantic valence DDR"
+)
+```
+
+```{r valence-ddr-analysis}
+set.seed(1234)
+
+valence_boot_reps <- 300L
+
+Valence_DDR_by_decade <- vector("list", length(ENGall_model))
+valence_ddr_scores_decades <- vector("list", length(ENGall_model))
+
+for (i in seq_along(ENGall_model)) {
+  embeddings <- ENGall_model[[i]]
+  embeddings <- embeddings[magnitude(embeddings) != 0, ]
+
+  available_valence_words <- valence_words[valence_words %in% rownames(embeddings)]
+
+  Valence_DDR_by_decade[[i]] <- build_ddr(
+    embeddings = embeddings,
+    words = available_valence_words
+  )
+
+  valence_target <- rbind(
+    Valence = Valence_DDR_by_decade[[i]]
+  )
+
+  central_scores <- tibble(
+    method = c("Pairwise delta", "Anchored", "PLS"),
+    score = c(
+      cos_sim(
+        Valence_DDR_by_decade[[i]],
+        Macho_DDR_nudge_by_decade[[i]]
+      ) - cos_sim(
+        Valence_DDR_by_decade[[i]],
+        Nice_DDR_nudge_by_decade[[i]]
+      ),
+      valence_target |>
+        get_sims(
+          list(
+            anchor = list(
+              pos = Macho_DDR_nudge_by_decade[[i]],
+              neg = Nice_DDR_nudge_by_decade[[i]]
+            )
+          ),
+          method = "anchored"
+        ) |>
+        as.data.frame() |>
+        pull(anchor) |>
+        {\(x) x - 0.5}(),
+      cos_sim(
+        Valence_DDR_by_decade[[i]],
+        pls_nudge_axis_by_decade[[i]]
+      )
+    )
+  )
+
+  bootstrap_scores <- map_dfr(seq_len(valence_boot_reps), function(bootstrap_id) {
+    sampled_words <- sample(
+      available_valence_words,
+      size = length(available_valence_words),
+      replace = TRUE
+    )
+
+    boot_ddr <- build_ddr(
+      embeddings = embeddings,
+      words = sampled_words
+    )
+
+    boot_target <- rbind(
+      Valence = boot_ddr
+    )
+
+    tibble(
+      method = c("Pairwise delta", "Anchored", "PLS"),
+      bootstrap_id = bootstrap_id,
+      score = c(
+        cos_sim(boot_ddr, Macho_DDR_nudge_by_decade[[i]]) -
+          cos_sim(boot_ddr, Nice_DDR_nudge_by_decade[[i]]),
+        boot_target |>
+          get_sims(
+            list(
+              anchor = list(
+                pos = Macho_DDR_nudge_by_decade[[i]],
+                neg = Nice_DDR_nudge_by_decade[[i]]
+              )
+            ),
+            method = "anchored"
+          ) |>
+          as.data.frame() |>
+          pull(anchor) |>
+          {\(x) x - 0.5}(),
+        cos_sim(boot_ddr, pls_nudge_axis_by_decade[[i]])
+      )
+    )
+  })
+
+  valence_ddr_scores_decades[[i]] <- central_scores |>
+    left_join(
+      bootstrap_scores |>
+        group_by(method) |>
+        summarise(
+          ci_low = quantile(score, 0.025, na.rm = TRUE),
+          ci_high = quantile(score, 0.975, na.rm = TRUE),
+          .groups = "drop"
+        ),
+      by = "method"
+    ) |>
+    mutate(
+      decade = decades[i],
+      n_valence_words = length(available_valence_words),
+      .before = 1
+    )
+}
+
+names(Valence_DDR_by_decade) <- decades
+
+valence_ddr_plot_df <- bind_rows(valence_ddr_scores_decades) |>
+  group_by(method) |>
+  arrange(decade, .by_group = TRUE) |>
+  mutate(
+    time_decades = (decade - min(decade)) / 10
+  ) |>
+  ungroup()
+
+kable(
+  valence_ddr_plot_df |>
+    select(decade, method, n_valence_words, score, ci_low, ci_high),
+  digits = 3,
+  caption = "Decade-specific semantic valence DDR scores across the Macho-Nice methods"
+)
+```
+
+```{r valence-ddr-plot}
+valence_ddr_time_plot <- ggplot(
+  valence_ddr_plot_df,
+  aes(x = decade, y = score, color = method, fill = method)
+) +
+  geom_hline(yintercept = 0, linewidth = 0.4) +
+  geom_ribbon(
+    aes(ymin = ci_low, ymax = ci_high),
+    alpha = 0.15,
+    color = NA,
+    show.legend = FALSE
+  ) +
+  geom_line(linewidth = 0.8, show.legend = FALSE) +
+  geom_point(size = 1.8, show.legend = FALSE) +
+  facet_wrap(~ method, scales = "free_y") +
+  scale_x_continuous(
+    breaks = seq(1800, 1990, by = 20)
+  ) +
+  scale_color_manual(
+    values = c(
+      "Pairwise delta" = "#B35C1E",
+      "Anchored" = "#1C7C7D",
+      "PLS" = "#4C4C4C"
+    )
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Pairwise delta" = "#B35C1E",
+      "Anchored" = "#1C7C7D",
+      "PLS" = "#4C4C4C"
+    )
+  ) +
+  labs(
+    title = "Semantic Valence DDR Alignment with the Macho-Nice Dimension",
+    x = "Decade",
+    y = "Valence DDR loading (centered)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+To make the two valence strategies easier to compare, I show them in one vertically stacked figure: the **Warriner-based trait valence trajectory** on top and the **semantic valence DDR trajectory** directly below it.
+
+```{r q3-valence-comparison-plot}
+patchwork::wrap_plots(
+  warriner_valence_plot,
+  valence_ddr_time_plot,
+  ncol = 1,
+  heights = c(1.15, 0.95)
+) +
+  patchwork::plot_annotation(
+    title = "Comparing Warriner-Based and Semantic-DDR Valence Trajectories"
+  )
+```
+As in the other time-trend sections, I first check for **tracking** before interpreting any formal significance test. Here the concern is the same: if adjacent decades remain similar after a basic linear trend is removed, then a simple independent-errors model would overstate certainty.
+
+```{r valence-ddr-tracking}
+valence_ddr_tracking_df <- valence_ddr_plot_df |>
+  group_by(method) |>
+  group_modify(~ {
+    fit <- lm(score ~ time_decades, data = .x)
+
+    tibble(
+      decade = .x$decade,
+      residual = resid(fit),
+      studentized = rstudent(fit)
+    )
+  }) |>
+  ungroup()
+
+valence_ddr_tracking_summary <- valence_ddr_tracking_df |>
+  group_by(method) |>
+  summarise(
+    lag1_residual_correlation = cor(residual[-n()], residual[-1]),
+    max_abs_studentized = max(abs(studentized), na.rm = TRUE),
+    n_abs_studentized_gt3 = sum(abs(studentized) > 3, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+kable(
+  valence_ddr_tracking_summary,
+  digits = 3,
+  caption = "Residual diagnostics for tracking in the semantic valence DDR trajectories"
+)
+```
+
+```{r valence-ddr-tracking-plot}
+ggplot(
+  valence_ddr_tracking_df,
+  aes(x = decade, y = residual)
+) +
+  geom_hline(yintercept = 0, linewidth = 0.4) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.6) +
+  facet_wrap(~ method, scales = "free_y") +
+  scale_x_continuous(
+    breaks = seq(1800, 1990, by = 20)
+  ) +
+  labs(
+    title = "Residual Tracking Check for Semantic Valence DDR Trends",
+    x = "Decade",
+    y = "OLS residual"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
+Dependence across decades is not evident in these residual diagnostics, so here I treat the **OLS slope itself** as the formal test of historical change. In other words, for the semantic valence DDR subsection I do **not** move to a GLS correction; instead, I estimate a straightforward linear trend over decades and interpret its slope, confidence interval, and p-value directly.
+
+```{r valence-ddr-ols}
+valence_ddr_ols_table <- valence_ddr_plot_df |>
+  group_by(method) |>
+  group_modify(~ {
+    fit <- lm(
+      score ~ time_decades,
+      data = .x
+    )
+
+    fit_summary <- summary(fit)
+    fit_ci <- confint(fit)["time_decades", ]
+    slope_estimate <- unname(coef(fit)[["time_decades"]])
+
+    start_row <- .x |>
+      arrange(decade) |>
+      slice_head(n = 1)
+
+    end_row <- .x |>
+      arrange(decade) |>
+      slice_tail(n = 1)
+
+    tibble(
+      start_decade = start_row$decade,
+      start_score = start_row$score,
+      start_ci_low = start_row$ci_low,
+      start_ci_high = start_row$ci_high,
+      end_decade = end_row$decade,
+      end_score = end_row$score,
+      end_ci_low = end_row$ci_low,
+      end_ci_high = end_row$ci_high,
+      change_across_period = end_row$score - start_row$score,
+      slope_per_decade = slope_estimate,
+      slope_ci_low = unname(fit_ci[1]),
+      slope_ci_high = unname(fit_ci[2]),
+      p_value = fit_summary$coefficients["time_decades", "Pr(>|t|)"],
+      r_squared = fit_summary$r.squared
+    )
+  }) |>
+  ungroup()
+
+valence_ddr_ols_table |>
+  transmute(
+    Method = method,
+    Start = paste0(
+      start_decade,
+      ": ",
+      apa_num(start_score, 2),
+      " ",
+      apa_ci(start_ci_low, start_ci_high, 2)
+    ),
+    End = paste0(
+      end_decade,
+      ": ",
+      apa_num(end_score, 2),
+      " ",
+      apa_ci(end_ci_low, end_ci_high, 2)
+    ),
+    `Change in M` = apa_num(change_across_period, 2),
+    `Slope b` = apa_num(slope_per_decade, 3),
+    `95% CI for b` = apa_ci(slope_ci_low, slope_ci_high, 3),
+    `R^2` = apa_num(r_squared, 3),
+    p = apa_p(p_value)
+  ) |>
+  kable(
+    caption = "OLS linear change in semantic valence DDR alignment across decades",
+    align = c("l", "l", "l", "r", "r", "l", "r", "l")
+  )
+```
+
+## Q4 -Attractiveness
+
 
 This section intentionally keeps **both** Attractiveness workflows in the same document.
 
@@ -1283,17 +1806,15 @@ for (i in seq_along(ENGall_model)) {
   embeddings <- ENGall_model[[i]]
   embeddings <- embeddings[magnitude(embeddings) != 0, ]
   
-  Attractiveness_DDR_injected_by_decade[[i]] <- predict(
-    embeddings,
-    attractiveness_words_injected
-  ) |>
-    average_embedding()
+  Attractiveness_DDR_injected_by_decade[[i]] <- build_ddr(
+    embeddings = embeddings,
+    words = attractiveness_words_injected
+  )
   
-  Attractiveness_DDR_nudge_by_decade[[i]] <- predict(
-    embeddings,
-    attractiveness_words
+  Attractiveness_DDR_nudge_by_decade[[i]] <- build_ddr(
+    embeddings = embeddings,
+    words = attractiveness_words
   ) |>
-    average_embedding() |>
     masculinity_nudge(E = embeddings)
 }
 
@@ -1301,11 +1822,11 @@ names(Attractiveness_DDR_injected_by_decade) <- decades
 names(Attractiveness_DDR_nudge_by_decade) <- decades
 ```
 
-### 
+### DDR analysis
 
 now after we constructed our attractiveness DDR, lets inspect the results of the attractiveness DDR in terms of its loading on the macho/nice axis - across the 3 approach, How does the metric of interest change across years.
 
-```{r}
+```{r Attractiveness-DDR-Analysis}
 
 # raw computation:
 cosine_scores_attractives_decades<- vector("list", length(ENGall_model))
@@ -1373,13 +1894,13 @@ for (i in seq_along(ENGall_model)) {
   ) |>
     get_sims(
       list(
-        "macho_vs_nice_nudge" = list(
-          pos = Macho_DDR_nudge_by_decade[[i]],
-          neg = Nice_DDR_nudge_by_decade[[i]]
-        ),  
         "macho_vs_nice_inject" = list(
           pos = Macho_DDR_injected_by_decade[[i]],
           neg = Nice_DDR_injected_by_decade[[i]]
+        ),
+        "macho_vs_nice_nudge" = list(
+          pos = Macho_DDR_nudge_by_decade[[i]],
+          neg = Nice_DDR_nudge_by_decade[[i]]
         )
       ), 
       method = "anchored"
@@ -1398,21 +1919,19 @@ for (i in seq_along(ENGall_model)) {
   #reusing the object already created in the previous sections (namely, r DDRs,warning=FALSE)
    
   pls_scores_attractives_decades[[i]] <- rbind(
-    Attractivness_inject= Attractiveness_DDR_injected_by_decade[[i]], 
-    Attractivness_nudge_ddr = Attractiveness_DDR_nudge_by_decade[[i]]
+    Attractivness_nudge_ddr = Attractiveness_DDR_nudge_by_decade[[i]],
+    Attractivness_inject= Attractiveness_DDR_injected_by_decade[[i]] 
   ) |>  
     get_sims(
       list(
-        "pls_nudge"  = pls_nudge_axis_by_decade[[i]],
-        "pls_inject" = pls_inject_axis_by_decade[[i]]
+        "pls_nudge"  = pls_nudge_axis_by_decade[[i]]
       ), 
       method = "cosine"
     ) |> 
     as.data.frame() |>
     mutate(
       construct = c(
-        "Attractivness_nudge_ddr",
-        "Attractivness_inject"
+        "Attractivness_nudge_ddr"
       ),
       .before = 1
    )
@@ -1444,18 +1963,21 @@ for (i in seq_along(ENGall_model)) {
         pull(macho_vs_nice_nudge)
     ) |>
     select(anchor_nudge, anchor_inject) |>
-    slice(1)
+    slice(1) |>
+    
+    # for easier interpretation would make the sclae beteen -0.5 - 0.5, where -0.5 = nice, 0 = neutral, 0.5 = macho:
+    mutate(
+      anchor_nudge = anchor_nudge - 0.5,
+      anchor_inject = anchor_inject - 0.5
+      )
 
   pls_clean_attractives_decades[[i]] <- pls_scores_attractives_decades[[i]] |>
     mutate( 
-      pls_inject =pls_scores_attractives_decades[[i]] |>
-        filter(construct == "Attractivness_inject") |>
-        pull(pls_inject),
       pls_nudge =pls_scores_attractives_decades[[i]] |>
         filter(construct == "Attractivness_nudge_ddr") |>
         pull(pls_nudge)
     ) |>
-    select(pls_nudge, pls_inject) |>
+    select(pls_nudge) |>
     slice(1)
 } 
    # summarise and join the cleaned listed with decade as an identifier
@@ -1484,6 +2006,65 @@ attractiveness_decade_summary <- cosine_clean_df |>
 
 ```
 
+
+
+```{r PlotAttractiveness}
+
+attractiveness_plot_df <- attractiveness_decade_summary |>
+  select(
+    decade,
+    nudge_delta,
+    inject_delta,
+    anchor_nudge,
+    anchor_inject,
+    pls_nudge
+  ) |>
+  pivot_longer(
+    cols = -decade,
+    names_to = "method",
+    values_to = "score"
+  ) |>
+  mutate(
+    approach = case_when(
+      str_detect(method, "nudge")  ~ "Nudge",
+      str_detect(method, "inject") ~ "Inject"
+    ),
+    axis_method = case_when(
+      str_detect(method, "delta")  ~ "Pairwise cosine delta",
+      str_detect(method, "anchor") ~ "Anchored macho–nice axis",
+      str_detect(method, "pls")    ~ "PLS axis"
+    )
+  )
+
+
+ggplot(
+  attractiveness_plot_df,
+  aes(
+    x = decade,
+    y = score,
+    linetype = approach,
+    group = interaction(axis_method, approach)
+  )
+) +
+  geom_hline(yintercept = 0, linewidth = 0.4) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 2) +
+  facet_wrap(~ axis_method, scales = "free_y") +
+  scale_x_continuous(
+    breaks = seq(1800, 1990, by = 20)
+  ) +
+  labs(
+    x = "Decade",
+    y = "Attractiveness association score",
+    linetype = "Embedding construction",
+    title = "Association Between Attractiveness and the Macho–Nice Dimension Across Decades"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+```
 ::: callout-note
 ## What now
 
@@ -1502,14 +2083,892 @@ future:
 5- what other axaminations would indicate such "stereotype-Split"?
 :::
 
-# Q4
+## Q5 - Relationship type 
 
 It does seems that in the literature the only sliant and psychology related findings was that although macho men tend to be percived as more attractive and sexual the appeal prevail only when the relationship type is od casual and non long lasting. When the latter is true, its seems that women are more drawn and prefer the characteristics of the nice guy better than the macho men.
 
 another articles talks about the prefrance of a women in terms of sxual activity and the place in which sexuality takesin their life - *Edward S. Herold & Robin R. Milhausen (1999) Dating preferences of university women: An analysis of the nice guy stereotype, Journal of Sex & Marital Therapy, 25:4, 333-343, DOI: 10.1080/00926239908404010*
 
-```{r RelationshipTypes}
+To probe that idea directly, I define two new target DDRs. The first is a **long-committed relationship** construct, built from words that emphasize stability, devotion, and pair-bonding. The second is a **short-casual sexual relationship** construct, built from words that emphasize casualness, desire, and sexual gratification.
+
+Because these constructs describe *relationship types* rather than *men themselves*, I keep them as **raw semantic targets**. In other words, I do **not** inject male anchors into the relationship DDRs. Instead, I project the two relationship DDRs onto the **nudge-based** Macho-Nice dimension and ask which relationship type falls closer to the Nice side and which falls closer to the Macho side.
+
+```{r RelationshipTypeWords}
+long_committed_relationship_words <- c(
+  "committed",
+  "faithful",
+  "loyal",
+  "devoted",
+  "marriage",
+  "married",
+  "partner",
+  "romantic",
+  "enduring",
+  "stable"
+)
+
+casual_sexual_relationship_words <- c(
+  "casual",
+  "sexual",
+  "sensual",
+  "lust",
+  "desire",
+  "passionate",
+  "promiscuous",
+  "physical",
+  "pleasure",
+  "tempting"
+)
+
+relationship_word_coverage <- map_dfr(seq_along(ENGall_model), function(i) {
+  embeddings <- ENGall_model[[i]]
+  embeddings <- embeddings[magnitude(embeddings) != 0, ]
+
+  tibble(
+    decade = decades[i],
+    long_committed_available = sum(
+      long_committed_relationship_words %in% rownames(embeddings)
+    ),
+    casual_sexual_available = sum(
+      casual_sexual_relationship_words %in% rownames(embeddings)
+    )
+  )
+})
+
+kable(
+  relationship_word_coverage,
+  caption = "Available words per decade for the relationship-type DDRs"
+)
+```
+
+```{r RelationshipTypeDDRs}
+LongCommitted_DDR_by_decade <- vector("list", length(ENGall_model))
+CasualSexual_DDR_by_decade <- vector("list", length(ENGall_model))
+
+for (i in seq_along(ENGall_model)) {
+  embeddings <- ENGall_model[[i]]
+  embeddings <- embeddings[magnitude(embeddings) != 0, ]
+
+  LongCommitted_DDR_by_decade[[i]] <- build_ddr(
+    embeddings = embeddings,
+    words = long_committed_relationship_words
+  )
+
+  CasualSexual_DDR_by_decade[[i]] <- build_ddr(
+    embeddings = embeddings,
+    words = casual_sexual_relationship_words
+  )
+}
+
+names(LongCommitted_DDR_by_decade) <- decades
+names(CasualSexual_DDR_by_decade) <- decades
+```
+
+### Relationship-type analysis
+
+```{r RelationshipTypeAnalysis}
+relationship_scores_decades <- vector("list", length(ENGall_model))
+
+for (i in seq_along(ENGall_model)) {
+  relationship_targets <- rbind(
+    LongCommitted = LongCommitted_DDR_by_decade[[i]],
+    CasualSexual = CasualSexual_DDR_by_decade[[i]]
+  )
+
+  delta_scores <- relationship_targets |>
+    get_sims(
+      list(
+        macho = Macho_DDR_nudge_by_decade[[i]],
+        nice = Nice_DDR_nudge_by_decade[[i]]
+      ),
+      method = "cosine"
+    ) |>
+    as.data.frame()
+
+  anchor_scores <- relationship_targets |>
+    get_sims(
+      list(
+        anchor = list(
+          pos = Macho_DDR_nudge_by_decade[[i]],
+          neg = Nice_DDR_nudge_by_decade[[i]]
+        )
+      ),
+      method = "anchored"
+    ) |>
+    as.data.frame()
+
+  pls_scores <- relationship_targets |>
+    get_sims(
+      list(
+        pls = pls_nudge_axis_by_decade[[i]]
+      ),
+      method = "cosine"
+    ) |>
+    as.data.frame()
+
+  relationship_scores_decades[[i]] <- tibble(
+    construct = c("Long committed", "Casual sexual"),
+    decade = decades[i],
+    pairwise_delta = delta_scores$macho - delta_scores$nice,
+    anchored_axis = anchor_scores$anchor - 0.5,
+    pls_axis = pls_scores$pls
+  )
+}
+
+relationship_plot_df <- bind_rows(relationship_scores_decades) |>
+  pivot_longer(
+    cols = c(pairwise_delta, anchored_axis, pls_axis),
+    names_to = "axis_method",
+    values_to = "score"
+) |>
+  mutate(
+    axis_method = case_when(
+      axis_method == "pairwise_delta" ~ "Pairwise cosine delta",
+      axis_method == "anchored_axis" ~ "Anchored macho-nice axis",
+      axis_method == "pls_axis" ~ "PLS axis"
+    )
+  )
+
+relationship_summary_table <- relationship_plot_df |>
+  group_by(axis_method, construct) |>
+  summarise(
+    mean_score = mean(score, na.rm = TRUE),
+    min_score = min(score, na.rm = TRUE),
+    max_score = max(score, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+kable(
+  relationship_summary_table,
+  digits = 3,
+  caption = "Average relationship-type loading on the Macho-Nice dimension across methods"
+)
+```
+
+```{r RelationshipTypePlot}
+ggplot(
+  relationship_plot_df,
+  aes(
+    x = decade,
+    y = score,
+    color = construct,
+    group = construct
+  )
+) +
+  geom_hline(yintercept = 0, linewidth = 0.4) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.8) +
+  facet_wrap(~ axis_method, scales = "free_y") +
+  scale_x_continuous(
+    breaks = seq(1800, 1990, by = 20)
+  ) +
+  labs(
+    x = "Decade",
+    y = "Relationship-type loading",
+    color = "Relationship DDR",
+    title = "Relationship-Type Alignment with the Macho-Nice Dimension Across Decades"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+```
+
+Across the three scoring families, the **long-committed relationship** DDR is expected to sit closer to the **Nice** pole, whereas the **casual-sexual relationship** DDR should sit relatively closer to the **Macho** pole. In practice, the key question is not whether the casual-sexual DDR always becomes fully Macho-coded, but whether it is **consistently less Nice-coded** than the long-committed DDR. If that pattern holds, it would mirror the literature's claim that the Macho stereotype is more compatible with short-term sexual appeal, whereas the Nice stereotype is more compatible with long-term commitment.
 
 
 
+## Q6 - Split Growth Across Decades
+
+
+###Checking for Tracking Before Trend Modeling
+
+Before fitting any formal time-trend model, I first check whether the decade series shows signs of **tracking**, meaning that adjacent decades carry similar residual error. This matters because a simple linear model assumes that once the overall trend is fitted, the remaining errors are independent. In diachronic semantic data that assumption is often unrealistic: the meaning of masculinity in 1900 is not generated from scratch, but evolves gradually from 1890 and 1910.
+
+If residuals track each other over time, then an ordinary linear model becomes overconfident. In practical terms, that means:
+
+- standard errors can be too small;
+- p-values can be too optimistic;
+- confidence intervals can be too narrow.
+
+To run that diagnostic, I first define the split metrics themselves. I use two families of split indicators:
+
+1.  **prototype distance**: how far apart the Macho and Nice Guy DDRs are in a given decade;
+2.  **lexicon-wide polarization**: how strongly the whole decade lexicon is pulled toward one pole versus the other.
+
+Normalization matters here because a DDR is an **average vector**, and average vectors are **not** unit length. In cosine-based measures this is not a problem, because cosine is scale-invariant: normalizing a vector does **not** change its cosine relationship to another vector. In Euclidean distance, however, vector length does matter. A larger **raw** Euclidean distance can reflect either:
+
+1.  a stronger directional split between Macho and Nice;  
+2.  or simply longer DDR vectors in that decade.
+
+For that reason, I report both **raw Euclidean distance** and **normalized Euclidean distance**:
+
+- If **both** raw and normalized distance grow, the split is strengthening in a robust geometric sense.
+- If **raw** distance grows but **normalized** distance does not, the constructs are becoming stronger in magnitude, but not necessarily more directionally distinct.
+- If **normalized** distance grows while raw distance stays flat, the two constructs are becoming more directionally opposed even without larger vector norms.
+
+I also report the average magnitude of the Macho-versus-Nice contrast across the full decade lexicon.
+
+```{r SplitMetrics}
+split_metrics_decades <- vector("list", length(ENGall_model))
+
+for (i in seq_along(ENGall_model)) {
+  embeddings <- ENGall_model[[i]]
+  embeddings <- embeddings[magnitude(embeddings) != 0, ]
+
+  macho_ddr_raw <- as.numeric(Macho_DDR_nudge_by_decade[[i]])
+  nice_ddr_raw <- as.numeric(Nice_DDR_nudge_by_decade[[i]])
+
+  macho_ddr_norm <- normalize(macho_ddr_raw)
+  nice_ddr_norm <- normalize(nice_ddr_raw)
+
+  delta_scores <- embeddings |>
+    get_sims(
+      list(
+        macho = macho_ddr_norm,
+        nice = nice_ddr_norm
+      ),
+      method = "cosine"
+    ) |>
+    as.data.frame() |>
+    transmute(delta = macho - nice)
+
+  split_metrics_decades[[i]] <- tibble(
+    decade = decades[i],
+    macho_norm = magnitude(macho_ddr_raw),
+    nice_norm = magnitude(nice_ddr_raw),
+    cosine_similarity = cos_sim(macho_ddr_raw, nice_ddr_raw),
+    cosine_distance = 1 - cos_sim(macho_ddr_raw, nice_ddr_raw),
+    raw_euclidean_distance = euc_dist(macho_ddr_raw, nice_ddr_raw),
+    normalized_euclidean_distance = euc_dist(macho_ddr_norm, nice_ddr_norm),
+    mean_abs_delta = mean(abs(delta_scores$delta), na.rm = TRUE),
+    sd_delta = sd(delta_scores$delta, na.rm = TRUE)
+  )
+}
+
+split_metrics_df <- bind_rows(split_metrics_decades)
+
+kable(
+  split_metrics_df,
+  digits = 3,
+  caption = "Distance and polarization between the Macho and Nice Guy constructs across decades"
+)
+```
+
+To diagnose tracking, I intentionally fit a **simple ordinary least squares (OLS)** line to each split metric. This is *not* the final model. It is a diagnostic baseline whose residuals let us ask a simple question: after removing a basic linear time trend, do adjacent decades still move together?
+
+I first prepare the time index and also join the decade-level embedding availability information. The availability values are not needed for the residual diagnostic itself, but they will be used in the weighted models that follow.
+
+```{r SplitModelPrep}
+split_model_df <- split_metrics_df |>
+  left_join(
+    avwords_n_decade_df |>
+      select(decade, n_avwords, prop_avail),
+    by = "decade"
+  ) |>
+  mutate(
+    time_decades = (decade - min(decade)) / 10,
+    decade_index = row_number()
+  )
+```
+
+In the next chunk, I extract two diagnostic quantities from the simple OLS fits:
+
+- the **raw residuals**, which show whether adjacent decades tend to stay above or below the fitted line together;
+- the **studentized residuals**, which scale each residual by its estimated uncertainty. Values larger than about `|3|` are often treated as unusually extreme.
+
+If residuals show long runs of the same sign, or if the lag-1 residual correlation is high, that is evidence of tracking and therefore evidence that a simple independent-errors model is not appropriate.
+
+```{r SplitTrackingDiagnostics}
+split_tracking_diagnostics_df <- c(
+  "cosine_distance",
+  "raw_euclidean_distance",
+  "normalized_euclidean_distance",
+  "mean_abs_delta",
+  "sd_delta"
+) |>
+  map_dfr(function(metric) {
+    fit <- lm(reformulate("time_decades", response = metric), data = split_model_df)
+
+    tibble(
+      decade = split_model_df$decade,
+      metric = metric,
+      fitted = fitted(fit),
+      residual = resid(fit),
+      studentized = rstudent(fit)
+    )
+  }) |>
+  mutate(
+    metric = case_when(
+      metric == "cosine_distance" ~ "Prototype cosine distance",
+      metric == "raw_euclidean_distance" ~ "Prototype Euclidean distance (raw)",
+      metric == "normalized_euclidean_distance" ~ "Prototype Euclidean distance (normalized)",
+      metric == "mean_abs_delta" ~ "Mean absolute delta across lexicon",
+      metric == "sd_delta" ~ "SD of delta across lexicon"
+    )
+  )
+```
+
+The next table summarizes the most important diagnostic signals. The **lag-1 residual correlation** tells us how similar each residual is to the next decade's residual. Values clearly above zero indicate temporal carryover. The **maximum absolute studentized residual** and the number of residuals larger than `|3|` help identify whether isolated extreme decades are also contributing to the problem.
+
+```{r SplitTrackingSummary}
+split_tracking_summary_table <- split_tracking_diagnostics_df |>
+  group_by(metric) |>
+  summarise(
+    lag1_residual_correlation = cor(residual[-n()], residual[-1]),
+    max_abs_studentized = max(abs(studentized), na.rm = TRUE),
+    n_abs_studentized_gt3 = sum(abs(studentized) > 3, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+kable(
+  split_tracking_summary_table,
+  digits = 3,
+  caption = "Residual diagnostics for detecting tracking in the decade series"
+)
+```
+
+I looks like the lag-1 is moderate-high (.35-.42) across all split metrics, indicating that adjacent decades are not independent. The maximum absolute studentized residual is largest for raw Euclidean distance, mean absolute delta, and SD of delta, suggesting that the earliest decade is particularly influential for those measures.
+
+#### Plot
+I now plot the raw residuals against time. If the residuals are independent, these panels should look patternless. If nearby decades cluster together above or below zero, that is visual evidence of tracking.
+
+```{r SplitTrackingResidualPlot}
+ggplot(
+  split_tracking_diagnostics_df,
+  aes(x = decade, y = residual)
+) +
+  geom_hline(yintercept = 0, linewidth = 0.4) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.8) +
+  facet_wrap(~ metric, scales = "free_y") +
+  scale_x_continuous(
+    breaks = seq(1800, 1990, by = 20)
+  ) +
+  labs(
+    x = "Decade",
+    y = "OLS residual",
+    title = "Residual Tracking Check Across Decades"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+```
+
+Finally, I inspect the studentized residuals. These plots help separate two issues:
+
+1.  **tracking**, where many adjacent residuals move together;
+2.  **single influential decades**, where one or two decades stand out sharply from the rest.
+
+##### Studentized Resudual
+```{r SplitTrackingStudentizedPlot}
+ggplot(
+  split_tracking_diagnostics_df,
+  aes(x = decade, y = studentized)
+) +
+  geom_hline(yintercept = 0, linewidth = 0.4) +
+  geom_hline(yintercept = c(-3, 3), linetype = "dashed", linewidth = 0.4) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.8) +
+  facet_wrap(~ metric, scales = "free_y") +
+  scale_x_continuous(
+    breaks = seq(1800, 1990, by = 20)
+  ) +
+  labs(
+    x = "Decade",
+    y = "Studentized residual",
+    title = "Studentized Residual Check Across Decades"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+```
+
+Residual diagnostics showed moderate positive tracking across all split metrics (lag-1 residual correlation = .35-.42), indicating that adjacent decades were not statistically independent. Studentized residuals further revealed that the earliest decade was highly influential for magnitude-sensitive measures, particularly raw Euclidean distance, mean absolute delta, and SD of delta, whereas cosine and normalized Euclidean distance remained below the conventional outlier threshold. 
+
+This pattern suggests that early-decade instability affects raw magnitude-based measures more strongly than direction-based measures, supporting the use of weighted GLS models with AR(1) errors and robustness checks excluding unstable early decades.
+
+
+
+### Analysis 
+The next step is to model whether these split metrics show a **systematic trend over time** once tracking is handled explicitly.
+
+At the same time, not all decades are equally informative. The ENGall availability table above shows that some decades have more words with usable embeddings than others. If a decade has fewer usable vectors, then its split estimate is likely to be less precise. To reflect that, I add a **Weighted Least Squares (WLS)** component to the model.
+
+Because the total ENGall vocabulary is fixed across decades, `n_avwords` and `prop_avail` contain the same ranking information. I therefore use `n_avwords` directly because it is more concrete to interpret: it is the number of words with usable embeddings in that decade.
+
+The combined model is therefore a **weighted GLS with AR(1)**. In plain language:
+
+- `GLS` estimates the trend line while allowing the residuals to have a structured dependence.
+- `AR(1)` means each decade is allowed to be statistically correlated with the immediately adjacent decade.
+- `WLS` gives less influence to decades with fewer usable embeddings, and more influence to decades with richer lexical coverage.
+- `phi` is the autocorrelation parameter: values closer to `1` mean stronger decade-to-decade carryover.
+
+In `nlme::gls()`, the weighting is expressed as a **variance function** rather than as simple case weights. I specify `weights = varFixed(~ I(1 / n_avwords))`, which means decades with fewer available words are treated as having larger residual variance and therefore contribute less to the fitted trend.
+
+I now fit the **linear weighted GLS model** for each split metric. This tells us whether the split tends to increase or decrease over time once both autocorrelation and uneven decade-level information are taken into account.
+
+```{r SplitGLSLinear}
+split_gls_linear_table <- c(
+  "cosine_distance",
+  "raw_euclidean_distance",
+  "normalized_euclidean_distance",
+  "mean_abs_delta",
+  "sd_delta"
+) |>
+  map_dfr(function(metric) {
+    fit <- nlme::gls( # this is a normal generalized least squares model, but with AR(1) correlation structure and weights for the number of available words
+      reformulate("time_decades", response = metric),
+      data = split_model_df,
+      correlation = nlme::corAR1(form = ~ decade_index),
+      weights = nlme::varFixed(~ I(1 / n_avwords)),
+      method = "ML"
+    )
+
+    tibble(
+      metric = metric,
+      slope_per_decade = unname(coef(fit)[["time_decades"]]),
+      p_value = summary(fit)$tTable["time_decades", "p-value"],
+      ar1_phi = unname(
+        coef(fit$modelStruct$corStruct, unconstrained = FALSE)
+      ),
+      aic = AIC(fit)
+    )
+  })
+
+split_gls_linear_table <- split_gls_linear_table |>
+  mutate(
+    metric = case_when(
+      metric == "cosine_distance" ~ "Prototype cosine distance",
+      metric == "raw_euclidean_distance" ~ "Prototype Euclidean distance (raw)",
+      metric == "normalized_euclidean_distance" ~ "Prototype Euclidean distance (normalized)",
+      metric == "mean_abs_delta" ~ "Mean absolute delta across lexicon",
+      metric == "sd_delta" ~ "SD of delta across lexicon"
+    )
+  )
+
+kable(
+  split_gls_linear_table,
+  digits = 4,
+  caption = "Weighted GLS linear trend tests for whether the Macho-Nice split grows across decades"
+)
+```
+
+Language change over two centuries may not be perfectly linear, so I also fit a **natural spline** version of the same weighted GLS model. A natural spline allows the trend to bend gradually rather than forcing one straight line through the whole period. This is a useful sensitivity check because cultural change often unfolds in phases rather than at a constant rate.
+
+To compare the linear and spline models fairly, both are fit with **maximum likelihood (`ML`)**. That matters because when the fixed-effects structure changes, `ML` is the standard basis for comparing model fit. I then compare the two models using:
+
+- `AIC`: lower values indicate better fit with a penalty for extra complexity;
+- `L.Ratio p-value`: whether the spline improves fit enough over the linear model to justify the added flexibility.
+
+```{r SplitGLSSpline}
+split_gls_spline_table <- c(
+  "cosine_distance",
+  "raw_euclidean_distance",
+  "normalized_euclidean_distance",
+  "mean_abs_delta",
+  "sd_delta"
+) |>
+  map_dfr(function(metric) {
+    fit_linear <- nlme::gls( #This is a normal generalized least squares model, but with AR(1) correlation structure and weights for the number of available words
+      reformulate("time_decades", response = metric),
+      data = split_model_df,
+      correlation = nlme::corAR1(form = ~ decade_index),
+      weights = nlme::varFixed(~ I(1 / n_avwords)),
+      method = "ML"
+    )
+
+    fit_spline <- nlme::gls(# this is a model that allows for a non-linear relationship between time and the split metric, using natural splines with 3 degrees of freedom (curves)
+      reformulate("splines::ns(time_decades, df = 3)", response = metric),
+      data = split_model_df,
+      correlation = nlme::corAR1(form = ~ decade_index),
+      weights = nlme::varFixed(~ I(1 / n_avwords)),
+      method = "ML"
+    )
+
+    model_comparison <- anova(fit_linear, fit_spline)
+
+    tibble(
+      metric = metric,
+      linear_aic = AIC(fit_linear),
+      spline_aic = AIC(fit_spline),
+      lr_p_value = model_comparison$`p-value`[2],
+      better_model = case_when(
+        AIC(fit_spline) + 2 < AIC(fit_linear) ~ "Spline",
+        AIC(fit_linear) + 2 < AIC(fit_spline) ~ "Linear",
+        TRUE ~ "Similar fit"
+      )
+    )
+  })
+
+split_gls_spline_table <- split_gls_spline_table |>
+  mutate(
+    #Renaming 
+    metric = case_when(
+      metric == "cosine_distance" ~ "Prototype cosine distance",
+      metric == "raw_euclidean_distance" ~ "Prototype Euclidean distance (raw)",
+      metric == "normalized_euclidean_distance" ~ "Prototype Euclidean distance (normalized)",
+      metric == "mean_abs_delta" ~ "Mean absolute delta across lexicon",
+      metric == "sd_delta" ~ "SD of delta across lexicon"
+    )
+  )
+
+kable(
+  split_gls_spline_table,
+  digits = 4,
+  caption = "Weighted GLS spline sensitivity checks for nonlinear change in the Macho-Nice split"
+)
+```
+
+Before looking at the autocorrelation-aware models, it is still useful to inspect the raw trajectories directly. The next plot shows the observed split metrics by decade, without imposing a fitted trend line.
+
+```{r SplitPlot}
+split_plot_df <- split_metrics_df |>
+  select(
+    decade,
+    cosine_distance,
+    raw_euclidean_distance,
+    normalized_euclidean_distance,
+    mean_abs_delta,
+    sd_delta
+  ) |>
+  pivot_longer(
+    cols = -decade,
+    names_to = "metric",
+    values_to = "value"
+  ) |>
+  mutate(
+    metric = case_when(
+      metric == "cosine_distance" ~ "Prototype cosine distance",
+      metric == "raw_euclidean_distance" ~ "Prototype Euclidean distance (raw)",
+      metric == "normalized_euclidean_distance" ~ "Prototype Euclidean distance (normalized)",
+      metric == "mean_abs_delta" ~ "Mean absolute delta across lexicon",
+      metric == "sd_delta" ~ "SD of delta across lexicon"
+    )
+  )
+
+ggplot(
+  split_plot_df,
+  aes(x = decade, y = value)
+) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.8) +
+  facet_wrap(~ metric, scales = "free_y") +
+  scale_x_continuous(
+    breaks = seq(1800, 1990, by = 20)
+  ) +
+  labs(
+    x = "Decade",
+    y = "Split metric",
+    title = "Growth of the Macho-Nice Split Across Decades"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+```
+
+### Robustness Check: Excluding Unstable Early Decades
+
+The first two decades appear visually extreme across several panels, especially in the lexicon-wide delta metrics. To check whether these early values are driving the results, I rerun the same split analysis after excluding **1800** and **1810** as potentially unstable decades.
+
+The logic here is straightforward: if the substantive pattern is real, it should survive after removing the decades that look unusually influential. If the significance or direction changes sharply, that suggests the full-sample result may depend heavily on those early observations.
+
+I first rebuild the time index on the reduced sample. This is important because the AR(1) model should treat the filtered series as a new sequence of equally spaced decade observations. I keep the same availability-based weighting logic here as well, so the reduced-sample robustness check remains directly comparable to the full-sample model.
+
+```{r SplitRobustnessPrep}
+unstable_decades <- c(1800, 1810)
+
+split_metrics_stable_df <- split_metrics_df |>
+  left_join(
+    avwords_n_decade_df |>
+      select(decade, n_avwords, prop_avail),
+    by = "decade"
+  ) |>
+  filter(!decade %in% unstable_decades) |>
+  mutate(
+    time_decades = (decade - min(decade)) / 10,
+    decade_index = row_number()
+  )
+```
+
+Before refitting the reduced-sample trend models, I again check whether tracking remains in the filtered decade series. This matters because dropping influential early decades can reduce outlier pressure without fully removing temporal dependence. If adjacent residuals still move together, the reduced-sample inference should still use the same `GLS + AR(1)` structure rather than reverting to an independent-errors model.
+
+```{r SplitRobustnessTracking}
+split_tracking_stable_summary_table <- c(
+  "cosine_distance",
+  "raw_euclidean_distance",
+  "normalized_euclidean_distance",
+  "mean_abs_delta",
+  "sd_delta"
+) |>
+  map_dfr(function(metric) {
+    fit <- lm(
+      reformulate("time_decades", response = metric),
+      data = split_metrics_stable_df
+    )
+
+    tibble(
+      metric = metric,
+      lag1_residual_correlation = cor(resid(fit)[-length(resid(fit))], resid(fit)[-1]),
+      max_abs_studentized = max(abs(rstudent(fit)), na.rm = TRUE),
+      n_abs_studentized_gt3 = sum(abs(rstudent(fit)) > 3, na.rm = TRUE)
+    )
+  }) |>
+  mutate(
+    metric = case_when(
+      metric == "cosine_distance" ~ "Prototype cosine distance",
+      metric == "raw_euclidean_distance" ~ "Prototype Euclidean distance (raw)",
+      metric == "normalized_euclidean_distance" ~ "Prototype Euclidean distance (normalized)",
+      metric == "mean_abs_delta" ~ "Mean absolute delta across lexicon",
+      metric == "sd_delta" ~ "SD of delta across lexicon"
+    )
+  )
+
+kable(
+  split_tracking_stable_summary_table,
+  digits = 3,
+  caption = "Residual diagnostics for tracking after excluding 1800 and 1810"
+)
+```
+
+I then refit the same **weighted linear GLS + AR(1)** models on the reduced sample.
+
+```{r SplitRobustnessLinear}
+split_gls_linear_stable_table <- c(
+  "cosine_distance",
+  "raw_euclidean_distance",
+  "normalized_euclidean_distance",
+  "mean_abs_delta",
+  "sd_delta"
+) |>
+  map_dfr(function(metric) {
+    fit <- nlme::gls(
+      reformulate("time_decades", response = metric),
+      data = split_metrics_stable_df,
+      correlation = nlme::corAR1(form = ~ decade_index),
+      weights = nlme::varFixed(~ I(1 / n_avwords)),
+      method = "ML"
+    )
+
+    tibble(
+      metric = metric,
+      slope_per_decade = unname(coef(fit)[["time_decades"]]),
+      p_value = summary(fit)$tTable["time_decades", "p-value"],
+      ar1_phi = unname(
+        coef(fit$modelStruct$corStruct, unconstrained = FALSE)
+      ),
+      aic = AIC(fit)
+    )
+  })
+
+split_gls_linear_stable_table <- split_gls_linear_stable_table |>
+  mutate(
+    metric = case_when(
+      metric == "cosine_distance" ~ "Prototype cosine distance",
+      metric == "raw_euclidean_distance" ~ "Prototype Euclidean distance (raw)",
+      metric == "normalized_euclidean_distance" ~ "Prototype Euclidean distance (normalized)",
+      metric == "mean_abs_delta" ~ "Mean absolute delta across lexicon",
+      metric == "sd_delta" ~ "SD of delta across lexicon"
+    )
+  )
+
+kable(
+  split_gls_linear_stable_table,
+  digits = 4,
+  caption = "Weighted GLS linear trend tests for the Macho-Nice split after excluding 1800 and 1810"
+)
+```
+
+Finally, I repeat the **weighted spline sensitivity check** on the reduced sample. This tells us whether any nonlinear pattern still appears once the earliest decades are removed.
+
+```{r SplitRobustnessSpline}
+split_gls_spline_stable_table <- c(
+  "cosine_distance",
+  "raw_euclidean_distance",
+  "normalized_euclidean_distance",
+  "mean_abs_delta",
+  "sd_delta"
+) |>
+  map_dfr(function(metric) {
+    fit_linear <- nlme::gls(
+      reformulate("time_decades", response = metric),
+      data = split_metrics_stable_df,
+      correlation = nlme::corAR1(form = ~ decade_index),
+      weights = nlme::varFixed(~ I(1 / n_avwords)),
+      method = "ML"
+    )
+
+    fit_spline <- nlme::gls(
+      reformulate("splines::ns(time_decades, df = 3)", response = metric),
+      data = split_metrics_stable_df,
+      correlation = nlme::corAR1(form = ~ decade_index),
+      weights = nlme::varFixed(~ I(1 / n_avwords)),
+      method = "ML"
+    )
+
+    model_comparison <- anova(fit_linear, fit_spline)
+
+    tibble(
+      metric = metric,
+      linear_aic = AIC(fit_linear),
+      spline_aic = AIC(fit_spline),
+      lr_p_value = model_comparison$`p-value`[2],
+      better_model = case_when(
+        AIC(fit_spline) + 2 < AIC(fit_linear) ~ "Spline",
+        AIC(fit_linear) + 2 < AIC(fit_spline) ~ "Linear",
+        TRUE ~ "Similar fit"
+      )
+    )
+  })
+
+split_gls_spline_stable_table <- split_gls_spline_stable_table |>
+  mutate(
+    metric = case_when(
+      metric == "cosine_distance" ~ "Prototype cosine distance",
+      metric == "raw_euclidean_distance" ~ "Prototype Euclidean distance (raw)",
+      metric == "normalized_euclidean_distance" ~ "Prototype Euclidean distance (normalized)",
+      metric == "mean_abs_delta" ~ "Mean absolute delta across lexicon",
+      metric == "sd_delta" ~ "SD of delta across lexicon"
+    )
+  )
+
+kable(
+  split_gls_spline_stable_table,
+  digits = 4,
+  caption = "Weighted GLS spline sensitivity checks for the Macho-Nice split after excluding 1800 and 1810"
+)
+```
+
+Instead of showing only the observed reduced-sample trajectories, I now plot the **fitted models themselves**. For each metric, I refit the full-sample and reduced-sample models, select the better-fitting specification between the **linear GLS + AR(1)** and **spline GLS + AR(1)** versions using the same AIC rule as above, and then plot the model-implied trajectory over the shared **1820--1990** period.
+
+The shaded ribbons are approximate **95% confidence intervals for the fitted mean trajectory**, not prediction intervals for a single decade. This is the most direct visual robustness check: if the reduced-sample fit stays close to the full-sample fit, then the substantive conclusion is not being driven mainly by the excluded early decades.
+
+```{r SplitRobustnessPlot}
+metric_labels <- c(
+  cosine_distance = "Prototype cosine distance",
+  raw_euclidean_distance = "Prototype Euclidean distance (raw)",
+  normalized_euclidean_distance = "Prototype Euclidean distance (normalized)",
+  mean_abs_delta = "Mean absolute delta across lexicon",
+  sd_delta = "SD of delta across lexicon"
+)
+
+shared_decades <- setdiff(decades, unstable_decades)
+
+split_robustness_model_plot_df <- names(metric_labels) |>
+  map_dfr(function(metric) {
+    tibble(
+      sample = c("Full sample", "Excluding 1800 and 1810"),
+      model_data = list(split_model_df, split_metrics_stable_df)
+    ) |>
+      mutate(
+        plot_df = map2(sample, model_data, function(sample, model_data) {
+          fit_linear <- nlme::gls(
+            reformulate("time_decades", response = metric),
+            data = model_data,
+            correlation = nlme::corAR1(form = ~ decade_index),
+            weights = nlme::varFixed(~ I(1 / n_avwords)),
+            method = "ML"
+          )
+
+          fit_spline <- nlme::gls(
+            reformulate("splines::ns(time_decades, df = 3)", response = metric),
+            data = model_data,
+            correlation = nlme::corAR1(form = ~ decade_index),
+            weights = nlme::varFixed(~ I(1 / n_avwords)),
+            method = "ML"
+          )
+
+          selected_fit <- if (AIC(fit_spline) + 2 < AIC(fit_linear)) {
+            fit_spline
+          } else {
+            fit_linear
+          }
+
+          selected_model <- if (AIC(fit_spline) + 2 < AIC(fit_linear)) {
+            "Spline GLS + AR(1)"
+          } else {
+            "Linear GLS + AR(1)"
+          }
+
+          newdata <- tibble(
+            decade = shared_decades,
+            time_decades = (shared_decades - min(model_data$decade)) / 10
+          )
+
+          design_matrix <- model.matrix(
+            delete.response(terms(selected_fit)),
+            data = newdata
+          )
+
+          fit_value <- as.numeric(design_matrix %*% coef(selected_fit))
+          fit_se <- sqrt(
+            diag(
+              design_matrix %*%
+                vcov(selected_fit) %*%
+                t(design_matrix)
+            )
+          )
+
+          tibble(
+            decade = shared_decades,
+            metric = metric_labels[[metric]],
+            sample = sample,
+            selected_model = selected_model,
+            fitted = fit_value,
+            conf_low = fit_value - qnorm(0.975) * fit_se,
+            conf_high = fit_value + qnorm(0.975) * fit_se
+          )
+        })
+      ) |>
+      select(plot_df) |>
+      unnest(plot_df)
+  })
+
+ggplot(
+  split_robustness_model_plot_df,
+  aes(x = decade, y = fitted, color = sample, fill = sample)
+) +
+  geom_ribbon(
+    aes(ymin = conf_low, ymax = conf_high),
+    alpha = 0.16,
+    linewidth = 0,
+    color = NA
+  ) +
+  geom_line(
+    aes(linetype = selected_model),
+    linewidth = 0.9
+  ) +
+  facet_wrap(~ metric, scales = "free_y") +
+  scale_x_continuous(
+    breaks = seq(1820, 1990, by = 20)
+  ) +
+  scale_color_manual(
+    values = c(
+      "Full sample" = "black",
+      "Excluding 1800 and 1810" = "firebrick"
+    )
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Full sample" = "grey55",
+      "Excluding 1800 and 1810" = "firebrick"
+    )
+  ) +
+  labs(
+    x = "Decade",
+    y = "Model-implied split metric",
+    color = "Sample",
+    fill = "Sample",
+    linetype = "Selected model",
+    title = "Model-Based Robustness Check for the Macho-Nice Split"
+  ) +
+  theme_minimal(base_size = 8) +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
 ```
