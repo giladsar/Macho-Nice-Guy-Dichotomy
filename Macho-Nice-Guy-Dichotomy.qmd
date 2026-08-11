@@ -74,6 +74,41 @@ library(pls) # PLS
 
 ```
 
+```{r APA-Helpers}
+
+
+apa_num <- function(x, digits = 2) {
+  ifelse(
+    is.na(x),
+    NA_character_,
+    sprintf(paste0("%.", digits, "f"), x)
+  )
+}
+
+apa_p <- function(p) {
+  case_when(
+    is.na(p) ~ NA_character_,
+    p < 0.001 ~ "< .001",
+    TRUE ~ sub("^0\\.", ".", sprintf("%.3f", round(p, 3)))
+  )
+}
+
+apa_ci <- function(low, high, digits = 2) {
+  ifelse(
+    is.na(low) | is.na(high),
+    NA_character_,
+    paste0(
+      "[",
+      sprintf(paste0("%.", digits, "f"), low),
+      ", ",
+      sprintf(paste0("%.", digits, "f"), high),
+      "]"
+    )
+  )
+}
+```
+
+
 ```{r Datapaths, include=FALSE}
 
 # --- 0) Paths  -------------------
@@ -386,42 +421,71 @@ macho_nice_words_by_decade_df <- wanted |>
 
 ```
 
-```{r}
+```{r avaiability-constructs-table}
 
 kable(macho_nice_words_by_decade_df,
       caption= "Construct's word presence across time")
 ```
 
-It seems the words *cocky* and *macho* do not appear in ENGall at all. I therefore omit them so that the construct vectors are built only from words that actually exist in the model.
 
-This leaves the Macho and Nice lists with slightly different lengths, which is worth keeping in mind when interpreting the results.
+It seems that many words in the Macho construct are missing from the corpus, although their availability remains relatively stable from around 1860 onward. For the Nice Guy construct, availability is more stable across time.To ensure that the results are not confounded by seed-word availability, I will remove the words that are missing from the corpus. Afterwards, I will examine the new seed-word bank to determine whether it aligns with and adequately represents the theoretical constructs of interest.
 
 ```{r}
-length(macho_guy_words)
-#[1] 20
 
-length(macho_guy_words_injected)
+# removing the missing words from the constructs
 
-#[1] 24
+ macho_words_remaining<- setdiff(
+  macho_guy_words, macho_nice_words_by_decade_df |>
+    filter(set == "macho")|>
+    select(missing) |>
+    pull() |>
+    unlist()|>
+    unique()
+  )
 
-length(male_anchors)
-# [1] 4
 
-macho_guy_words <- setdiff(macho_guy_words,c("cocky", "macho"))
-macho_guy_words_injected <- setdiff(macho_guy_words_injected,c("cocky", "macho"))
 
-# Sanity check
-length(macho_guy_words)
-# [1] 18
+nice_words_remaining<- setdiff(
+  nice_guy_words, macho_nice_words_by_decade_df |>
+    filter(set == "nice")|>
+    select(missing) |>
+    pull() |>
+    unlist()|>
+    unique()
+  )
+macho_words_remaining
+length(macho_words_remaining)
+# "confident"  "tough"      "strong"     "decisive"   "bold"       "powerful"   "commanding", "ambitious" 
+# 8 
 
-length(macho_guy_words_injected)
+nice_words_remaining
+length(nice_words_remaining)
+#"kind","gentle","respectful",understanding", "warm","affectionate", "polite","faithful","honest", "attentive","humble","nice"    
+# 12
 
-# [1] 20
+#to account for the disperancy I will remove 4 words from the remaining nice guy words so that the macho construct and the nice gut constract would have the same number of words avaiable in them 
 
-# OK I'm sane
-    
-    
+# the words are 'polite', 'humble', 'faithful' and 'honest'. 
+
+nice_words_remaining <- nice_words_remaining[!nice_words_remaining %in% c("polite", "humble", "faithful", "honest")]
+
+
+
+
+nice_guy_words<- nice_words_remaining
+nice_guy_words_injected <-nice_guy_words |>
+  c(male_anchors)
+
+macho_guy_words <- macho_words_remaining
+macho_guy_words_injected <- macho_guy_words |>
+    c(male_anchors)
+
+
+
 ```
+
+To sum things up, the Macho-Guy construct is now represented by 8 words (`r macho_guy_words`), and the Nice-Guy construct is represented by 8 words as well (`r nice_guy_words`). This ensures that both constructs are equally represented in the analysis, which is important for making valid comparisons between them.
+
 
 # DDR
 
@@ -767,57 +831,101 @@ method_scores_long <- bind_rows(warriner_scores_omit, .id = "decade") |>
 ```
 
 ```{r compare-methods-helper}
-one_sample_score_summary <- function(x, method) {
-  x <- x[is.finite(x)]
+one_sample_score_summary <- function(data,
+                         method, # what is the H0 assumed value for the mean score depend on which method we use and how we rescale the Anchord method? 
+                          min_n = 6) {
+
+  x <- data$score
+  n <- length(x)
+  s <- if (n > 1) sd(x) else NA_real_ # in case a word appears only once in a decade, sd is NA, and we can't compute d_z
   method <- unique(method)
 
-  if (length(method) != 1) {
-    stop("one_sample_score_summary() expects exactly one method label per group.")
-  }
 
-  null_value <- case_when(
+  null <- case_when(
     # UNCOMMENT THIS WITH THE ANCHORED METHOD IF YOU WANT TO TEST AGAINST 0.5 INSTEAD OF 0 -PRETRANSOFRMING THE ANCHORED SCORES TO RANGE FROM -1 TO 1
  #    method == "Anchored" && all(x >= 0 & x <= 1, na.rm = TRUE) ~ 0.5,
     TRUE ~ 0
   )
-  
-  n <- length(x)
-  mean_score <- mean(x)
-  sd_score <- if (n > 1) sd(x) else NA_real_
-  se <- if (n > 1) sd_score / sqrt(n) else NA_real_
-   
-  if (n > 1 && is.finite(sd_score) && sd_score > 0) {
-    test <- t.test(x, mu = null_value)
-     
-    tibble(
-      n = n,
-      mean_score = mean_score,
-      sd_score = sd_score,
-      se = se,
-      null_value = null_value,
-      t_value = unname(test$statistic),
-      df = unname(test$parameter),
-      p_value = test$p.value,
-      d_z = (mean_score - null_value) / sd_score,
-      ci_low = unname(test$conf.int[1]),
-      ci_high = unname(test$conf.int[2])
-    )
-  } else { 
-    tibble(
-      n = n,
-      mean_score = mean_score,
-      sd_score = sd_score,
-      se = se,
-      null_value = null_value,
-      t_value = NA_real_,
-      df = NA_real_,
-      p_value = NA_real_,
-      d_z = NA_real_,
-      ci_low = NA_real_,
-      ci_high = NA_real_
-    )
+  result <- tibble(
+    n = n,
+    mean_score = if (n > 0) mean(x) else NA_real_,
+    median_score = if (n > 0) median(x) else NA_real_,
+    sd_score = s,
+    se = NA_real_,
+    null_value = null,
+    t_value = NA_real_,
+    df = NA_real_,
+    p_value = NA_real_,
+    d_z = if (is.finite(s) && s > 0) {
+      (mean(x) - null) / s
+    } else {
+      NA_real_
+    },
+    ci_low = NA_real_,
+    ci_high = NA_real_,
+    rho = NA_real_,
+    model = "Descriptive"
+  )
+
+
+  # Avoid fitting unstable AR(1) models.
+  if (n < min_n || !is.finite(s) || s == 0) { # s in infinite when there is no variance in x score across decades
+    result$model <- "Insufficient data"
+    return(result)
   }
-} 
+
+  data$.time <- (data$decade - min(data$decade)) / 10 #the time variable is the decade number, starting from 1800 for the first decade in the data and increasing by 10 for each subsequent decade. This is to make it range from 1 to 20 instead of 1800 to 1990. AR1 would be unstable with the original decade numbers, so I rescale it to a smaller range.
+  data$.score_centered <- data$score - null
+  data <- data[order(data$.time), ]
+
+  if (anyDuplicated(data$.time) ||
+      any(abs(data$.time - round(data$.time)) > 1e-8)) {
+    stop("AR(1) requires one observation per integer time point.")
+  }
+
+  fit <- tryCatch(
+    nlme::gls(
+      .score_centered ~ 1,
+      data = data,
+      method = "REML",
+      correlation = nlme::corAR1(form = ~ .time)
+    ),
+    error = function(e) NULL
+  )
+
+  if (is.null(fit)) {
+    result$model <- "AR1 failed"
+    return(result)
+  }
+
+  test <- summary(fit)$tTable[1, ]
+  df_value <- n - 1
+  estimate <- unname(test["Value"]) + null
+  se_value <- unname(test["Std.Error"])
+  critical_t <- qt(0.975, df_value)
+
+  result |>
+    mutate(
+      mean_score = estimate,
+      n = n,
+      se = se_value,
+      t_value = unname(test["t-value"]),
+      df = df_value,
+      p_value = unname(test["p-value"]),
+      d_z = (mean(x) - null) / s, # s=sd(score across decades for one word),
+      d_gls = (estimate - null) / sigma(fit), #since estimate is not mean(score) but the mean of the AR1 model, we can compute d_gls as (estimate - null)/sd(score across decades for one word)
+      
+      ci_low = estimate - critical_t * se_value,
+      ci_high = estimate + critical_t * se_value,
+      rho = unname(
+        coef(
+          fit$modelStruct$corStruct,
+          unconstrained = FALSE
+        )
+      ),
+      model = "GLS AR(1)"
+    )
+}
 ```
 
 ### Word-level analysis
@@ -834,7 +942,8 @@ compare_nice_macho_words <- function(data, only_traits = FALSE) {
 
   data |>
     group_by(method, approach, word) |>
-    group_modify(~ one_sample_score_summary(.x$score, method = .y$method)) |>
+    group_modify(~ one_sample_score_summary(.x,
+                                            method = .y$method)) |>
     ungroup() |>
     left_join(
       data |>
@@ -860,86 +969,35 @@ compare_nice_macho_words <- function(data, only_traits = FALSE) {
     arrange(method, approach, p_fdr)
 }
 
-word_summary_all <- compare_nice_macho_words(
-  method_scores_long,
-  only_traits = FALSE
-)
+#------
+# THIS TAKES FOREVER TO LOAD SO COMMENTED OUT since we applied AR1 gls model , ONLY TRAITS HAVE PROPERTIES FROM WARNIER LIST 
 
+# word_summary_all <- compare_nice_macho_words(
+#   method_scores_long,
+#   only_traits = FALSE
+# )
+
+# word_summary_all |>
+#   filter(sig != "No") |>
+#   group_by(method, approach, direction) |>
+#   arrange(p_fdr, .by_group = TRUE) |>
+#   slice_head(n = 10) |>
+#   ungroup() |>
+#   select(method, approach, direction, word, n, mean_score, d_z, p_value, p_fdr, sig) |>
+#   kable(
+#     caption = "Top word-level Macho/Nice scores across decades by method and approach",
+#     digits = 3
+#   )
+
+#--------
 word_summary_traits <- compare_nice_macho_words(
   method_scores_long,
   only_traits = TRUE
 )
 
-word_summary_all |>
-  filter(sig != "No") |>
-  group_by(method, approach, direction) |>
-  arrange(p_fdr, .by_group = TRUE) |>
-  slice_head(n = 10) |>
-  ungroup() |>
-  select(method, approach, direction, word, n, mean_score, d_z, p_value, p_fdr, sig) |>
-  kable(
-    caption = "Top word-level Macho/Nice scores across decades by method and approach",
-    digits = 3
-  )
 
 ```
 
-### Decade-level analysis
-
-This asks: within each decade, are Warriner words on average shifted toward Macho or Nice?
-
-```{r compare-methods-decade-level}
-compare_overall_by_decade <- function(data, only_traits = FALSE) {
-
-  if (only_traits) {
-    data <- data |>
-      filter(word %in% traits_warriner$word)
-  }
-
-  data |>
-    group_by(method, approach, decade) |>
-    group_modify(~ one_sample_score_summary(.x$score, method = .y$method)) |>
-    ungroup() |>
-    mutate(
-      direction = case_when(
-        mean_score > 0 ~ "Macho",
-        mean_score < 0 ~ "Nice",
-        TRUE ~ "Neutral"
-      ),
-      sig = case_when(
-        is.na(p_value) ~ "No",
-        p_value < 0.001 ~ "***",
-        p_value < 0.01 ~ "**",
-        p_value < 0.05 ~ "*",
-        TRUE ~ "No"
-      )
-    ) |>
-    arrange(method, approach, decade)
-}
-
-decade_summary_all <- compare_overall_by_decade(
-  method_scores_long,
-  only_traits = FALSE
-)
-
-decade_summary_traits <- compare_overall_by_decade(
-  method_scores_long,
-  only_traits = TRUE
-)
-
-decade_summary_all |>
-  select(
-    method, approach, decade, n,
-    mean_score, d_z, ci_low, ci_high,
-    t_value, df, p_value, direction, sig
-  ) |>
-  kable(
-    caption = "Decade-level Macho/Nice shift across Warriner words by method and approach",
-    digits = 3
-  )
-
-
-```
 
 ## Q2 - Traits {#sec-q2-traits}
 
@@ -948,35 +1006,7 @@ decade_summary_all |>
 To keep this interpretable, I focus here on the rated trait words rather than the full vocabulary. The goal is simple: average each trait's score across decades, keep the significant trait-level results, and then inspect the strongest positive effects (Macho) and strongest negative effects (Nice).
 
 ```{r compare-methods-top-traits}
-apa_num <- function(x, digits = 2) {
-  ifelse(
-    is.na(x),
-    NA_character_,
-    sprintf(paste0("%.", digits, "f"), x)
-  )
-}
 
-apa_p <- function(p) {
-  case_when(
-    is.na(p) ~ NA_character_,
-    p < 0.001 ~ "< .001",
-    TRUE ~ sub("^0\\.", ".", sprintf("%.3f", round(p, 3)))
-  )
-}
-
-apa_ci <- function(low, high, digits = 2) {
-  ifelse(
-    is.na(low) | is.na(high),
-    NA_character_,
-    paste0(
-      "[",
-      sprintf(paste0("%.", digits, "f"), low),
-      ", ",
-      sprintf(paste0("%.", digits, "f"), high),
-      "]"
-    )
-  )
-}
 
 top_signed_traits <- function(data, top_n = 10) {
   data |>
@@ -3086,7 +3116,7 @@ Overall, the Macho--Nice Guy distinction is clearer in the **content of the two 
 
 ## "Just Nice" analysis
 
-Although we did found that the valence of words associated with nice gut increase throughout the years it doesn't tell us whether this is due to the fact that nice guy is associated with nice traits or whether it is due to the fact that nice guy is associated with positive valence words.
+Although we did found that the valence of words associated with nice gets increase throughout the years it doesn't tell us whether this is due to the fact that nice guy is associated with nice traits or whether it is due to the fact that nice guy is associated with positive valence words.
 and alternative explanation could be that "nice words" gradually became more positive over time and since nice guy is associated with nice words it also became more positive.
 
 ```{r JustNiceAnalysis}
@@ -3104,8 +3134,7 @@ for (i in seq_along(ENGall_model)) {
   
   # Creating the DDR  
   just_nice_DDR_by_decade[[i]] <-  build_ddr(embeddings, nice_guy_words)
-   margin_justNice_NiceGuy_by_decade[[i]] <- _by_decade[[i]] 
-  
+
   # Method 1: Pairwise Deltas 
   cosine_scores_word_level <- embeddings |>
     get_sims(
