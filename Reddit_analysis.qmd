@@ -1,0 +1,332 @@
+---
+title: "Macho-Nice Guy Dichotomy - Reddit's dating-post corpus"
+author: "Gilad Sarusi"
+format: 
+  html:
+    toc: true
+    number-sections: true
+    self-contained: true
+execute:
+  warning: false
+  message: false
+editor: visual
+---
+
+```{r dependencies, echo=FALSE}
+#Packages
+
+library(tidyverse)
+library(vroom)       # fast reading of large texts
+library(stringr) # string manipulation
+library(quanteda) # for text analysis
+library(embedplyr) # for working with embeddings manipulation
+library(readr) # loading from huggingFace
+
+
+```
+
+```{r dataLoading}
+data_RODD_path <-  "data/RODD/RODD_data.csv"
+
+
+url <- paste0(
+  "https://huggingface.co/datasets/",
+  "FabianLeibinger/Reddit-Online-Dating-Dataset-RODD/",
+  "resolve/main/rodd.csv"
+)
+# run this once to download the dataset from hugging face  : 
+# system2(
+#   "curl",
+#   c(
+#     "-L",
+#     "--retry", "5",
+#     "--retry-delay", "3",
+#     "-o",  data_RODD_path,
+#     shQuote(url)
+#   )
+# )
+RODD_df <- read_csv(data_RODD_path, show_col_types = FALSE)
+
+```
+
+# Project overview
+
+The Macho–Nice Guy Dichotomy project examines how two contrasting masculine prototypes—the dominant, assertive “Macho” type and the caring, considerate “Nice Guy” type—are represented in language. The historical phase traces these associations across English-language word embeddings from 1800 to 1990. This phase extends the analysis to contemporary online-dating discourse, asking how these prototypes and their associated traits appear in Reddit users’ descriptions of dating experiences.
+
+
+# RODD 
+
+The Reddit Online Dating Dataset (RODD) contains approximately 219,000 English-language Reddit submissions published between 2010 and September 2024. The posts were selected through online-dating keywords from nine dating-related and demographic-focused subreddits.
+
+Each row represents one submission. The principal text variables are title and selftext; additional fields describe the subreddit, publication date, extraction keywords, author, flair, and engagement indicators such as score, comments, crossposts, and upvote ratio. The dataset contains one training split and approximately 140,000 distinct author accounts.
+
+Several nuances should guide interpretation. RODD is a keyword-filtered, self-selected sample rather than a representative sample of online daters. Advice-seeking and negative experiences—particularly dating fatigue—are overrepresented. Reddit’s anonymity prevents reliable identification of authors’ demographic characteristics, and multiple posts may come from the same account. Some text and metadata fields are missing, while engagement measures reflect platform activity rather than the psychological meaning of a post. Consequently, findings should be interpreted as patterns in Reddit’s online-dating discourse, not as general attitudes held by all online daters.
+
+
+# Working through the data
+
+I first inspect general characteristics of the corpus, including the number of
+posts per year, their distribution across subreddits, and post length. I then
+use a dictionary-guided text analysis to examine how Macho- and Nice
+Guy-associated language appears in the corpus and which words distinguish the
+contexts in which the two prototypes are mentioned.
+
+## Preparing the data
+
+```{r prepare-rodd}
+RODD_analysis <- RODD_df |>
+  mutate(
+    created = suppressWarnings(
+      readr::parse_datetime(as.character(created), locale = locale(tz = "UTC"))
+    ),
+    year = as.integer(format(created, "%Y")),
+
+    post_text = str_squish(
+      str_c(coalesce(title, ""), coalesce(selftext, ""), sep = " ")
+    ),
+    post_characters = str_length(post_text),
+    post_words = str_count(post_text, boundary("word"))
+  ) |>
+  filter(post_words > 0)
+
+corpus_summary <- RODD_analysis |>
+  summarise(
+    `Number of posts` = n(),
+    `Unique author labels` = n_distinct(author, na.rm = TRUE),
+    `First year` = min(year, na.rm = TRUE),
+    `Last year` = max(year, na.rm = TRUE),
+    `Median words per post` = median(post_words, na.rm = TRUE),
+    `Mean words per post` = mean(post_words, na.rm = TRUE)
+  ) |>
+  mutate(`Mean words per post` = round(`Mean words per post`, 1))
+
+knitr::kable(corpus_summary, caption = "Overview of the RODD corpus")
+```
+
+
+## Posts over time
+
+```{r posts-by-year, fig.width=9, fig.height=5}
+posts_by_year <- RODD_analysis |>
+  filter(!is.na(year)) |>
+  count(year, name = "posts")
+
+ggplot(posts_by_year, aes(x = year, y = posts)) +
+  geom_col(fill = "#3B6EA8", width = 0.8) +
+  scale_x_continuous(breaks = seq(min(posts_by_year$year),
+                                  max(posts_by_year$year), by = 2)) +
+  scale_y_continuous(labels = scales::label_comma()) +
+  labs(
+    title = "Online-dating submissions in RODD by year",
+    x = "Year",
+    y = "Number of posts"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+The final year is incomplete because the dataset includes submissions only
+through September 2024. Counts therefore describe the composition of RODD, not
+the total volume of online-dating discussions on Reddit. However it seems that the number of discussion opens and successfully parsed in the dataset has increase substantially across the years.  
+
+## Distribution across subreddits
+
+Subreddits are the discussion type per se; they are topic-specific communities within Reddit. Their names begin with r/.
+```{r posts-by-subreddit, fig.width=9, fig.height=6}
+posts_by_subreddit <- RODD_analysis |>
+  mutate(subreddit = coalesce(subreddit, "Missing")) |>
+  count(subreddit, sort = TRUE, name = "posts") |>
+  mutate(percent = 100 * posts / sum(posts))
+
+knitr::kable(
+  posts_by_subreddit |>
+    mutate(percent = round(percent, 1)),
+  col.names = c("Subreddit", "Posts", "Percent"),
+  caption = "Distribution of posts across subreddits"
+)
+
+ggplot(
+  posts_by_subreddit,
+  aes(x = reorder(subreddit, posts), y = posts)
+) +
+  geom_col(fill = "#6A8E5B") +
+  coord_flip() +
+  scale_y_continuous(labels = scales::label_comma()) +
+  labs(
+    title = "Composition of RODD by subreddit",
+    x = NULL,
+    y = "Number of posts"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+## Post length
+
+```{r post-length, fig.width=9, fig.height=5}
+length_summary <- RODD_analysis |>
+  summarise(
+    minimum = min(post_words),
+    `25th percentile` = quantile(post_words, 0.25),
+    median = median(post_words),
+    mean = mean(post_words),
+    `75th percentile` = quantile(post_words, 0.75),
+    `95th percentile` = quantile(post_words, 0.95),
+    maximum = max(post_words)
+  ) |>
+  mutate(across(everything(), ~ round(as.numeric(.x), 1)))
+
+knitr::kable(length_summary, caption = "Post length in words")
+
+# Restrict the display to the first 99% of the distribution so that a small
+# number of very long posts do not compress the main body of the histogram.
+length_display_limit <- quantile(RODD_analysis$post_words, 0.99, na.rm = TRUE)
+
+RODD_analysis |>
+  filter(post_words <= length_display_limit) |>
+  ggplot(aes(x = post_words)) +
+  geom_histogram(binwidth = 25, fill = "#8A5A83", color = "white") +
+  scale_y_continuous(labels = scales::label_comma()) +
+  labs(
+    title = "Distribution of post length",
+    subtitle = "The longest 1% of posts are omitted from the display",
+    x = "Words in title and post body",
+    y = "Number of posts"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+# Dictionary-guided exploration of the dichotomy
+
+This first text analysis is descriptive. The dictionaries operationalize the
+two theoretical prototypes; they do not provide ground-truth labels for the
+authors or posts. A post is called *associated* with one prototype when it
+contains more of that prototype's seed words than seed words from the other
+prototype.
+
+```{r prototype-dictionaries}
+nice_guy_words <- c(
+  "kind", "gentle", "caring", "sensitive", "considerate", "respectful",
+  "supportive", "understanding", "warm", "affectionate",
+  "reliable", "faithful",  "thoughtful", "attentive", "humble",
+  "nice"
+)
+
+macho_words <- c(
+  "dominant", "assertive", "confident", "tough", "strong", "decisive",
+  "bold", "powerful", "competitive", "aggressive", "unemotional",
+  "fearless", "alpha", "commanding", "ambitious", "macho"
+)
+
+prototype_dictionary <- dictionary(list(
+  macho = macho_words,
+  nice_guy = nice_guy_words
+))
+```
+
+## Preprocessing and dictionary counts
+
+```{r tokenize-rodd, cache=TRUE}
+RODD_corpus <- corpus(
+  RODD_analysis,
+  text_field = "post_text",
+  docid_field = "id"
+)
+
+RODD_tokens <- RODD_corpus |>
+  tokens(
+    remove_punct = TRUE,
+    remove_symbols = TRUE,
+    remove_numbers = TRUE,
+    remove_url = TRUE,
+    split_hyphens = TRUE
+  ) |>
+  tokens_tolower() |>
+  tokens_remove(pattern = stopwords("en"))
+
+prototype_counts <- RODD_tokens |>
+  dfm() |>
+  dfm_lookup(dictionary = prototype_dictionary, valuetype = "fixed") |>
+  convert(to = "data.frame") 
+
+prototype_wordcount_results <- bind_cols(
+  RODD_analysis |>
+    select(id, year, subreddit, post_words),
+  prototype_counts |>
+    select(-doc_id)
+) |>
+  mutate(
+    macho_rate_per_1000 = 1000 * macho / post_words,
+    nice_rate_per_1000 = 1000 * nice_guy / post_words,
+    dichotomy_score = macho_rate_per_1000 - nice_rate_per_1000,
+    prototype = case_when(
+      macho > nice_guy ~ "Macho-associated",
+      nice_guy > macho ~ "Nice Guy-associated",
+      macho > 0 & nice_guy > 0 ~ "Mixed/equal",
+      TRUE ~ "No dictionary match"
+    )
+  )
+
+prototype_distribution <- prototype_wordcount_results |>
+  count(prototype, sort = TRUE, name = "posts") |>
+  mutate(percent = round(100 * posts / sum(posts), 2))
+
+knitr::kable(
+  prototype_distribution,
+  col.names = c("Dictionary classification", "Posts", "Percent"),
+  caption = "Posts containing Macho and Nice Guy dictionary terms"
+)
+```
+
+Normalizing counts per 1,000 words reduces the mechanical tendency for longer
+posts to contain more dictionary matches. The difference between the two rates
+is used only as a continuous descriptive score.
+
+```{r prototype-over-time, fig.width=9, fig.height=5}
+prototype_by_year <- prototype_results |>
+  filter(!is.na(year)) |>
+  group_by(year) |>
+  summarise(
+    macho_rate = weighted.mean(macho_rate_per_1000, post_words, na.rm = TRUE),
+    nice_rate = weighted.mean(nice_rate_per_1000, post_words, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  pivot_longer(
+    cols = ends_with("_rate"),
+    names_to = "prototype",
+    values_to = "terms_per_1000"
+  ) |>
+  mutate(
+    prototype = recode(
+      prototype,
+      macho_rate = "Macho dictionary",
+      nice_rate = "Nice Guy dictionary"
+    )
+  )
+
+ggplot(
+  prototype_by_year,
+  aes(x = year, y = terms_per_1000, color = prototype)
+) +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 1.8) +
+  scale_color_manual(values = c(
+    "Macho dictionary" = "#B24A3B",
+    "Nice Guy dictionary" = "#3B6EA8"
+  )) +
+  labs(
+    title = "Prototype-dictionary prevalence over time",
+    x = "Year",
+    y = "Dictionary terms per 1,000 words",
+    color = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+# Assumed gender
+
+The author field is treated only as an account label.  later on I will try to assume its gender using some assumptions:
+- females tent to use more the words "he" and "him" in their posts, while males tend "to use more the words "she" and "her" in their posts.
+- also, "my boyfriend" and "my girlfriend" are strong indicators of gender respectively. 
+- a lot of posts are include the "custom" of when talking about self and include the age and gender in a paramthesis, squired or normal. For Example: " (25M) " or " [25F] " or " (M) " or " (25, F) ".  I will try to extract this information as well.
+

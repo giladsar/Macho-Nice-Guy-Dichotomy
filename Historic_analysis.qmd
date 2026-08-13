@@ -1,5 +1,5 @@
 ---
-title: "Macho-Nice Guy Dichotomy"
+title: "Macho-Nice Guy Dichotomy - Historic Analysis"
 author: "Gilad Sarusi"
 format: 
   html:
@@ -1127,7 +1127,8 @@ Target-DDR analyses such as Attractiveness should therefore report both the raw 
 
 ***Q1.3: for each word, is its average score across decades reliably above or below zero?***
 
-This is not a test of historical trend. It tests each word's raw score against zero, where zero means equal proximity to Macho and Nice Guy. A background-relative test is a different estimand and would first replace the raw score with \(s_{w,t}-\bar{s}_{\text{vocabulary},t}\). I keep the raw zero-based score here so that the labels “Macho” and “Nice” retain their direct geometric meaning.
+This is not a test of historical trend. It tests each word's raw score against zero, where zero means equal proximity to Macho and Nice Guy. A background-relative test is a different estimand and would first replace the raw score with (s\_{w,t}-\bar{s}\_{\text{vocabulary},t}). I keep the raw zero-based score here so that the labels “Macho” and “Nice” retain their direct geometric meaning.
+
 ```{r statistics-words-level-helper}
 
 
@@ -1273,7 +1274,6 @@ compare_nice_macho_words <- function(data) {
 
 ```
 
-
 ```{r compare-methods-word-level-run, eval = FALSE}
 # Optional lexicon-wide exploratory analysis. This fits a separate AR(1) model
 # for every word, method, and approach, so it is intentionally not run during
@@ -1287,7 +1287,6 @@ table(word_summary_all |> filter( method == "Pairwise delta" & approach == "Nudg
 ```
 
 out of the 75662 words in the corpus, that has had enough embedding to be included in the analysis, 8619 words are significantly associated with Macho and 8742 words are significantly associated with Nice.
-
 
 ```{r top_10_most_associated_words, eval = FALSE}
 
@@ -1307,9 +1306,7 @@ word_summary_all |>
 
 ```
 
-
-not so informative !
-## Q2 - Traits {#sec-q2-traits}
+not so informative ! \## Q2 - Traits {#sec-q2-traits}
 
 **Which traits are most consistently pulled toward Macho and Nice Guy across decades?**
 
@@ -1485,8 +1482,6 @@ It seems that the Macho-associated traits supprisngly have score less dominance 
 **Did the mean valence of the traits most strongly aligned with the Macho and Nice Guy prototypes change across decades?**
 
 The primary analysis uses the Pairwise Delta scoring method with the Nudge construct-building approach. Within each decade, I identify the ten words with the highest scores as the most Macho-leaning words and the ten traits with the lowest scores as the most Nice Guy–leaning warriner list words
-
-
 
 ```{r compare-methods-top-trait-valence}
 select_top_words_by_decade <- function(data,
@@ -2002,8 +1997,6 @@ To make the two valence strategies easier to compare, I show them in one vertica
 
 ```
 
-
-
 ## Q4 -Attractiveness {#sec-q4-attractiveness}
 
 This section intentionally keeps **both** Attractiveness workflows in the same document.
@@ -2317,8 +2310,6 @@ attractiveness_background_adjusted
 
 ```
 
-
-
 ```{r PlotAttractiveness}
 
 attractiveness_plot_df <- attractiveness_background_adjusted |>
@@ -2402,6 +2393,7 @@ ggplot(
     strip.text = element_text(face = "bold")
   )
 ```
+
 ::: callout-note
 ## What now
 

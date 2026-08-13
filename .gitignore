@@ -8,3 +8,5 @@
 .RDataTmp2
 .RDataTmp3
 .RDataTmp5
+data/RODD/RODD_data.csv
+*.rdb

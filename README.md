@@ -1,10 +1,13 @@
 # Macho–Nice Guy Dichotomy
 
-An R and Quarto analysis of how *Macho* and *Nice Guy* masculine prototypes are represented in English-language historical word embeddings from 1800 to 1990.
+An R and Quarto research project examining the *Macho–Nice Guy* dichotomy across historical English and contemporary online-dating discourse.
 
-The project uses distributional semantics to ask whether these prototypes can be recovered from historical language, how they relate to traits, attractiveness, and relationship type, and whether the semantic distance between them changes over time.
+## Project phases
 
-The canonical, executable manuscript is [`Macho-Nice-Guy-Dichotomy.qmd`](./Macho-Nice-Guy-Dichotomy.qmd). A rendered version is available as [`Macho-Nice-Guy-Dichotomy.html`](./Macho-Nice-Guy-Dichotomy.html).
+- **Phase 1 — Historical analysis:** [`Historic_analysis.qmd`](./Historic_analysis.qmd) studies how the two masculine prototypes are represented in English-language historical word embeddings from 1800 to 1990. It asks how they relate to traits, attractiveness, relationship type, and whether the semantic distance between them changes over time.
+- **Phase 2 — Reddit dating-post analysis (active):** [`Reddit_analysis.qmd`](./Reddit_analysis.qmd) begins the analysis of contemporary online-dating discourse using the Reddit Online Dating Dataset (RODD).
+
+A rendered Phase 1 version is currently available as [`Macho-Nice-Guy-Dichotomy.html`](./Macho-Nice-Guy-Dichotomy.html).
 
 > This is a research repository centered on a reproducible manuscript, not an R package.
 
@@ -81,17 +84,18 @@ remotes::install_github("rimonim/embedplyr")
 
 The project does not currently include an `renv` lockfile, so dependency versions are not pinned.
 
-### 3. Render the manuscript
+### 3. Render an analysis
 
 From the project root, run:
 
 ```bash
-quarto render Macho-Nice-Guy-Dichotomy.qmd
+quarto render Historic_analysis.qmd
+quarto render Reddit_analysis.qmd
 ```
 
-Alternatively, open [`Macho-Nice-Guy-Dichotomy.Rproj`](./Macho-Nice-Guy-Dichotomy.Rproj) in RStudio and render the Quarto document there.
+Alternatively, open [`Macho-Nice-Guy-Dichotomy.Rproj`](./Macho-Nice-Guy-Dichotomy.Rproj) in RStudio and render the relevant Quarto document there.
 
-The standard render regenerates `Macho-Nice-Guy-Dichotomy.html`. Computationally expensive, lexicon-wide exploratory chunks marked `eval = FALSE` are intentionally skipped.
+Computationally expensive, lexicon-wide exploratory chunks in Phase 1 that are marked `eval = FALSE` are intentionally skipped during a standard render.
 
 ## Data
 
@@ -116,9 +120,9 @@ Because the cached models are large, rendering requires adequate disk space and 
 
 ```text
 .
-├── Macho-Nice-Guy-Dichotomy.qmd     # Canonical manuscript and analysis
+├── Historic_analysis.qmd            # Phase 1: historical embeddings
+├── Reddit_analysis.qmd              # Phase 2: Reddit dating posts
 ├── Macho-Nice-Guy-Dichotomy.html    # Rendered HTML manuscript
-├── Macho-Nice-Guy-Dichotomy.docx    # Word manuscript artifact
 ├── Macho-Nice-Guy-Dichotomy.Rproj   # RStudio project
 ├── engall/
 │   └── ENGall_model.RDS             # Cached decade-specific embeddings
