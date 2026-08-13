@@ -1,249 +1,170 @@
-# Macho-Nice-Guy-Dichotomy
+# Macho–Nice Guy Dichotomy
 
-## Overview
+An R and Quarto analysis of how *Macho* and *Nice Guy* masculine prototypes are represented in English-language historical word embeddings from 1800 to 1990.
 
-This repository contains the analysis pipeline, manuscript source, and supporting materials for a diachronic semantic study of the **Macho–Nice Guy dichotomy** in English-language historical word embeddings. The project asks whether culturally salient masculine prototypes associated with "macho" versus "nice" men can be recovered from distributional semantics, how these prototypes relate to attractiveness and relationship-type constructs, and whether the semantic split between them changes over time.
+The project uses distributional semantics to ask whether these prototypes can be recovered from historical language, how they relate to traits, attractiveness, and relationship type, and whether the semantic distance between them changes over time.
 
-The core analysis is implemented as an executable **Quarto manuscript** in [`Macho-Nice-Guy-Dichotomy.qmd`](./Macho-Nice-Guy-Dichotomy.qmd). The rendered HTML output is [`Macho-Nice-Guy-Dichotomy.html`](./Macho-Nice-Guy-Dichotomy.html).
+The canonical, executable manuscript is [`Macho-Nice-Guy-Dichotomy.qmd`](./Macho-Nice-Guy-Dichotomy.qmd). A rendered version is available as [`Macho-Nice-Guy-Dichotomy.html`](./Macho-Nice-Guy-Dichotomy.html).
 
-This is not an R package. It is a research repository centered on a single reproducible manuscript.
+> This is a research repository centered on a reproducible manuscript, not an R package.
 
-## Research Design
+## Research questions
 
-The study uses decade-specific embedding spaces from the **HistWords** family of models and focuses on the period **1800-1990**. The 2000s are excluded because later N-gram sampling differs from earlier slices.
+The manuscript addresses six questions:
 
-The main inferential idea is intentionally **within-decade** rather than direct cross-decade cosine comparison. This choice addresses the standard **alignment problem** in diachronic embeddings: raw geometric comparisons across independently trained historical spaces are not automatically interpretable. Instead, the manuscript asks whether words and construct vectors are relatively closer to the **Macho** or **Nice Guy** side *within each decade*, and then studies how those within-decade contrasts evolve across time.
+1. Is the historical English lexicon, on average, more closely associated with the Macho or Nice Guy prototype?
+2. Which personality traits are most consistently associated with each side of the dichotomy?
+3. Does the valence of Macho- and Nice-associated traits change across decades?
+4. How does an Attractiveness construct align with the Macho–Nice dimension?
+5. Do long-term/committed and casual/sexual relationship constructs align differently with the two prototypes?
+6. Does the semantic split between the prototypes widen over historical time?
 
-## Main Questions
+## Method in brief
 
-The manuscript is organized around six substantive questions:
+The analysis uses decade-specific, 300-dimensional English embeddings from the [HistWords project](https://nlp.stanford.edu/projects/histwords/), trained on Google Books N-grams. It covers 20 decade slices from 1800 through 1990; the 2000s are excluded because of changes in N-gram sampling.
 
-1. Whether lexical items are, on average, more strongly associated with the Macho or Nice Guy construct.
-2. Which rated traits are most consistently pulled toward each side of the dichotomy.
-3. Whether the valence of the traits associated with each construct changes across decades.
-4. How an Attractiveness construct aligns with the Macho-Nice dimension across methods and decades.
-5. Whether relationship-type constructs associated with long-term commitment versus casual sexuality align differently with the Macho-Nice dimension.
-6. Whether the semantic split between Macho and Nice Guy prototypes widens across historical time.
+The embeddings for different decades were trained separately, so raw vectors are not directly comparable across time without alignment. The primary analyses therefore calculate all semantic relationships **within each decade** and model the resulting decade-level scores over time.
 
-## Data Sources
+| Component | Operationalization |
+|---|---|
+| Macho and Nice Guy constructs | Averaged seed-word embeddings, also called distributed dictionary representations (DDRs) |
+| Masculine context | Either inject male anchor words into each seed list or nudge the completed DDR along a male-minus-female axis |
+| Pairwise score | Cosine similarity to Macho minus cosine similarity to Nice Guy |
+| Anchored score | Position on a bipolar Macho–Nice continuum |
+| PLS score | Cosine similarity to a supervised, one-component partial least squares axis |
+| Trait valence | Modern Warriner valence norms, complemented by a decade-specific semantic valence DDR |
+| Historical trends | OLS diagnostics followed by weighted GLS with AR(1) errors when residual tracking is evident |
 
-### Historical embeddings
+The scoring methods are not geometrically identical. Results are compared primarily through direction, rank ordering, robustness, and historical trajectories rather than by treating their raw magnitudes as interchangeable.
 
-- `engall/ENGall_model.RDS`
-  A cached list of decade-specific embedding spaces used by the manuscript.
-- The underlying modeling logic follows **HistWords**-style historical embeddings derived from Google Books N-grams.
+## Quick start
 
-### Lexical norms and stimulus materials
+### Prerequisites
 
-- `wordstim/allwrdnorms_warriner.csv`
-  Warriner valence, arousal, and dominance norms used in the trait-valence sections.
-- `wordstim/traitlist.txt`
-  Trait vocabulary used for the personality-focused analyses.
-- `wordstim/traitextradat.csv`
-  Additional trait-level supporting data.
-- `wordstim/freqav_dat.csv`
-  Auxiliary lexical metadata.
+- [Git LFS](https://git-lfs.com/) for the large embedding files
+- R
+- [Quarto](https://quarto.org/docs/get-started/)
 
-### Supplementary materials
+The current project has been tested with R 4.5.3 and Quarto 1.9.37. These are reference versions, not claimed minimum requirements.
 
-- `theoretical-supplements/`
-  PDFs and conceptual source materials used to motivate the theoretical framing.
+### 1. Clone the repository and fetch the data
 
-## Construct Representation Strategy
-
-The analysis operationalizes semantic constructs as **DDRs** (distributed dictionary representations), i.e. averaged embeddings over theoretically chosen seed words within each decade.
-
-The repository currently uses three related construct-building / scoring ideas:
-
-- **Nudge approach**
-  A construct DDR is built from a seed list and then shifted in the male direction using a male-minus-female semantic axis.
-- **Inject approach**
-  Male anchor words are inserted directly into the construct seed list before averaging.
-- **PLS axis**
-  A supervised one-component partial least squares model is trained to separate Macho versus Nice seed words, yielding a directional semantic axis.
-
-The current manuscript also includes:
-
-- **Warriner-based valence analysis**
-  Trait valence is read from external human ratings that remain constant across decades.
-- **Semantic valence DDR analysis**
-  A positive-valence prototype is built directly inside each decade from words such as `good`, `great`, and `wonderful`, allowing the valence signal itself to be represented distributionally rather than imposed from a modern norm table.
-
-## Scoring Framework
-
-Three scoring families are compared throughout the manuscript:
-
-- **Pairwise cosine delta**
-  Difference between cosine similarity to Macho and cosine similarity to Nice.
-- **Anchored scoring**
-  Position on a bipolar Macho-versus-Nice semantic continuum.
-- **PLS cosine loading**
-  Cosine similarity to a supervised Macho-Nice PLS axis.
-
-Because these methods are not geometrically identical, the manuscript emphasizes **directional agreement**, **rank ordering**, and **historical trajectories** rather than assuming that raw magnitudes are directly interchangeable.
-
-## Statistical Strategy
-
-The project combines descriptive lexical summaries with formal longitudinal modeling.
-
-### Descriptive components
-
-- One-sample tests are used in the screening sections to summarize whether grouped scores differ from their method-appropriate neutral point.
-- For anchored scores, the neutral value is handled carefully:
-  - raw anchored scores on the `0-1` scale use `.5` as the null;
-  - centered anchored scores use `0` as the null.
-
-### Longitudinal components
-
-Whenever the manuscript formally tests **change across decades**, it first checks for **tracking** in residuals:
-
-- residual-versus-time inspection,
-- lag-1 residual correlation,
-- studentized residual diagnostics.
-
-When residual dependence is evident, the manuscript uses **weighted GLS with AR(1)**:
-
-- `AR(1)` models temporal carryover between adjacent decades,
-- weighting is based on the number of available embedding vectors in each decade (`n_avwords`),
-- spline comparisons are used where nonlinear historical change is plausible.
-
-When residual diagnostics do **not** indicate meaningful dependence, the manuscript interprets **OLS slopes** directly as the formal test of historical change.
-
-## Repository Structure
-
-```text
-.
-├── Macho-Nice-Guy-Dichotomy.qmd        # Canonical manuscript source
-├── Macho-Nice-Guy-Dichotomy.html       # Rendered manuscript output
-├── Macho-Nice-Guy-Dichotomy.docx       # Word export / manuscript artifact
-├── Macho-Nice-Guy-Dichotomy.Rproj      # RStudio project file
-├── README.md                           # Project documentation
-├── engall/
-│   └── ENGall_model.RDS                # Cached decade-specific embeddings
-├── wordstim/
-│   ├── allwrdnorms_warriner.csv        # Valence/arousal/dominance norms
-│   ├── freqav_dat.csv
-│   ├── traitextradat.csv
-│   └── traitlist.txt
-├── theoretical-supplements/            # PDFs and conceptual background
-├── coha/                               # Auxiliary historical data resources
-└── media/                              # Presentation / visualization assets
+```bash
+git lfs install
+git clone https://github.com/giladsar/Macho-Nice-Guy-Dichotomy.git
+cd Macho-Nice-Guy-Dichotomy
+git lfs pull
 ```
 
-## Software Requirements
+If the repository is already cloned, run `git lfs pull` from its root to ensure that the data files have been downloaded rather than left as small pointer files.
 
-### Core environment
+### 2. Install the R dependencies
 
-- R
-- Quarto
-
-### R packages used directly in the manuscript
-
-- `tidyverse`
-- `vroom`
-- `stringr`
-- `purrr`
-- `sweater`
-- `quanteda.textmodels`
-- `quanteda`
-- `embedplyr`
-- `knitr`
-- `pls`
-
-### Additional namespaced dependencies used in the current manuscript
-
-- `nlme`
-- `patchwork`
-- `scales`
-- `splines`
-
-## Reproducibility
-
-### 1. Open the project
-
-Use the root directory as the working directory, ideally through the included RStudio project:
-
-- `Macho-Nice-Guy-Dichotomy.Rproj`
-
-### 2. Ensure data availability
-
-The Quarto document expects:
-
-- the cached embedding object at `engall/ENGall_model.RDS`, or
-- the ability to reconstruct embeddings from the HistWords-style model files referenced by the manuscript.
-
-### 3. Install required packages
-
-An example installation command is:
+Run the following in R:
 
 ```r
 install.packages(c(
   "tidyverse",
   "vroom",
-  "stringr",
-  "purrr",
+  "sweater",
   "quanteda.textmodels",
   "quanteda",
   "knitr",
   "pls",
   "nlme",
-  "patchwork",
-  "scales"
+  "scales",
+  "remotes"
 ))
+
+remotes::install_github("rimonim/embedplyr")
 ```
 
-Packages such as `sweater` and `embedplyr` may need to be installed from the appropriate source if they are not available in your default package repository.
+The project does not currently include an `renv` lockfile, so dependency versions are not pinned.
 
-### 4. Render the manuscript
+### 3. Render the manuscript
 
-From the project root:
+From the project root, run:
 
 ```bash
 quarto render Macho-Nice-Guy-Dichotomy.qmd
 ```
 
-This regenerates the main HTML manuscript:
+Alternatively, open [`Macho-Nice-Guy-Dichotomy.Rproj`](./Macho-Nice-Guy-Dichotomy.Rproj) in RStudio and render the Quarto document there.
 
-- `Macho-Nice-Guy-Dichotomy.html`
+The standard render regenerates `Macho-Nice-Guy-Dichotomy.html`. Computationally expensive, lexicon-wide exploratory chunks marked `eval = FALSE` are intentionally skipped.
 
-## Output
+## Data
 
-The rendered manuscript contains:
+### Historical embeddings
 
-- decade-by-decade plots,
-- trait-level summary tables,
-- residual tracking diagnostics,
-- OLS or GLS trend tables depending on residual dependence,
-- robustness checks excluding unstable early decades,
-- comparison of Warriner-based and semantic-DDR valence trajectories.
+- `engall/ENGall_model.RDS` is the cached list of 20 decade-specific ENGall embedding spaces used by the manuscript. It is approximately 1.6 GB and is stored with Git LFS.
+- `coha/wordvecsdata_coha.RData` is an auxiliary historical embedding resource. It is approximately 487 MB and is also stored with Git LFS.
 
-## Methodological Notes
+Because the cached models are large, rendering requires adequate disk space and memory.
 
-Several design choices are central to the interpretation of results:
+### Lexical norms and stimuli
 
-- **Within-decade comparison over raw cross-decade geometry**
-  This is the key safeguard against the alignment problem.
-- **Constructs as averaged seed-word embeddings**
-  Results depend on theoretically chosen word lists and should be interpreted as operationalizations, not as direct psychological measurements.
-- **Normalization and distance**
-  The manuscript distinguishes between cosine-based and Euclidean-based split metrics because vector magnitude can influence Euclidean distance independently of directional separation.
-- **Lexical availability**
-  The number of words with usable embeddings varies by decade; this matters for uncertainty and motivates weighted models in the longitudinal sections where dependence is evident.
+- `wordstim/allwrdnorms_warriner.csv` contains valence, arousal, and dominance ratings.
+- `wordstim/traitlist.txt` contains the trait vocabulary used in the personality analyses.
+- `wordstim/traitextradat.csv` and `wordstim/freqav_dat.csv` contain supporting trait and lexical metadata.
+
+### Theoretical materials
+
+`theoretical-supplements/` contains articles, item lists, and other materials used to develop the theoretical framing. These files are supporting sources; the executable analysis remains in the Quarto manuscript.
+
+## Repository structure
+
+```text
+.
+├── Macho-Nice-Guy-Dichotomy.qmd     # Canonical manuscript and analysis
+├── Macho-Nice-Guy-Dichotomy.html    # Rendered HTML manuscript
+├── Macho-Nice-Guy-Dichotomy.docx    # Word manuscript artifact
+├── Macho-Nice-Guy-Dichotomy.Rproj   # RStudio project
+├── engall/
+│   └── ENGall_model.RDS             # Cached decade-specific embeddings
+├── wordstim/                          # Norms, traits, and lexical metadata
+├── theoretical-supplements/           # Theoretical source materials
+├── coha/                              # Auxiliary historical embeddings
+├── media/                             # Presentation assets
+└── previous versions/                 # Earlier rendered manuscripts
+```
+
+## Outputs
+
+The rendered manuscript includes:
+
+- word-availability and construct-coverage checks;
+- decade-by-decade semantic trajectories;
+- trait-level rankings and summaries;
+- attractiveness and relationship-type comparisons;
+- residual-tracking diagnostics;
+- OLS, GLS/AR(1), and nonlinear trend comparisons where appropriate;
+- vocabulary and early-decade sensitivity analyses; and
+- comparisons between rating-based and semantic-DDR valence measures.
+
+## Reproducibility notes
+
+- The manuscript expects the repository root to be the working directory.
+- The primary model cache is tracked with Git LFS; a successful clone without an LFS pull is not sufficient.
+- Seed lists and construct definitions currently live inside the `.qmd` file so that the manuscript records the exact operationalizations used.
+- The number of available word vectors varies by decade. Coverage is reported explicitly and used in weighted longitudinal models where appropriate.
+- Direct vector displacement across independently trained decades is avoided in the primary analyses. Within-decade relationships are used instead.
+- The HTML file is a generated artifact. Changes to the analysis should be made in the Quarto source and then rendered.
 
 ## Limitations
 
-- Historical embeddings are corpus-derived and reflect language use rather than latent beliefs directly.
-- Seed-word choices are theory-laden and may affect construct geometry.
-- Warriner ratings are modern ratings applied to historical lexical items.
-- Some early decades are less stable because lexical coverage is weaker and certain seed terms are absent.
-- The project studies English-language semantic history and should not be generalized automatically beyond that corpus and language context.
+- Historical embeddings reflect patterns of language use, not psychological beliefs directly.
+- Construct seed words are theory-laden choices and can affect the resulting geometry.
+- Warriner ratings were collected in the modern period and are applied to historical lexical items.
+- Early decades have weaker lexical coverage and omit some seed terms.
+- Results are specific to the English-language corpora and should not be generalized automatically to other languages or cultural contexts.
+- Google Books data can reflect publication, digitization, and corpus-composition biases.
 
-## Citation and Use
+## Citation and data provenance
 
-If you use this repository, cite the manuscript or thesis chapter that accompanies it and acknowledge the original data sources, especially:
+If you use this repository, cite the thesis or manuscript associated with it and acknowledge the original data sources:
 
-- HistWords / historical Google Books embedding resources
-- Warriner et al. lexical norms
-- Any supplementary theoretical sources reproduced in `theoretical-supplements/`
+- Hamilton, W. L., Leskovec, J., & Jurafsky, D. (2016). [Diachronic word embeddings reveal statistical laws of semantic change](https://aclanthology.org/P16-1141/). *Proceedings of ACL 2016*, 1489–1501.
+- Warriner, A. B., Kuperman, V., & Brysbaert, M. (2013). [Norms of valence, arousal, and dominance for 13,915 English lemmas](https://doi.org/10.3758/s13428-012-0314-x). *Behavior Research Methods, 45*, 1191–1207.
 
-Users remain responsible for complying with the licenses and citation requirements of the original datasets and articles.
+Users are responsible for complying with the licenses and citation requirements of the original datasets and supplementary articles.

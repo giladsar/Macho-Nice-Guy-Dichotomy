@@ -124,7 +124,7 @@ Notably, in the 2000s there was a change in N-gram sampling. Therefore, embeddin
 ## Words norm - for valence computation: 
 
 
-warriner_path <- "wordstim/allwrdnorms_warriner.csv"         
+warriner_path <- "data/wordstim/allwrdnorms_warriner.csv"         
 # columns: word, valence, arousal, dominance - valence is the average rating on a 9-point scale from 1 (very negative) to 9 (very positive), obtained from Warriner and colleagues (2013)
 
 # Theoretically we need to cosider that the fact that this was a crowdslabeling procedure taken place in 2013, the chatechristics of each trait in term of valence, arousal and dominance are reflecting the meaning of the word in 2013, which might be different from the meaning of the word in 1800. However, since we are interested in the relative valence of traits (e.g., is "kind" more positive than "dominant"?), and since these relative valence ratings are likely to be more stable over time than absolute ratings, I will proceed with using Warriner's ratings as a proxy for trait valence across all decades. This is a common approach in historical semantics research, although it is important to acknowledge this limitation when interpreting results.
@@ -139,7 +139,7 @@ As an alternative, we might consider NRC VAD (S. M. Mohammad, 2018), which conta
 
 ## List of traits:
 
-traits_path <- "wordstim/traitlist.txt"
+traits_path <- "data/ordstim/traitlist.txt"
 
 # We would latter on create a file storing those words for the code to be more elegant :
 
