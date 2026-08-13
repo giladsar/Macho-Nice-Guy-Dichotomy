@@ -10,3 +10,4 @@
 .RDataTmp5
 data/RODD/RODD_data.csv
 *.rdb
+*.rdx

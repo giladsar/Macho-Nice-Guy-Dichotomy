@@ -53,8 +53,7 @@ RODD_df <- read_csv(data_RODD_path, show_col_types = FALSE)
 
 The Macho–Nice Guy Dichotomy project examines how two contrasting masculine prototypes—the dominant, assertive “Macho” type and the caring, considerate “Nice Guy” type—are represented in language. The historical phase traces these associations across English-language word embeddings from 1800 to 1990. This phase extends the analysis to contemporary online-dating discourse, asking how these prototypes and their associated traits appear in Reddit users’ descriptions of dating experiences.
 
-
-# RODD 
+# RODD
 
 The Reddit Online Dating Dataset (RODD) contains approximately 219,000 English-language Reddit submissions published between 2010 and September 2024. The posts were selected through online-dating keywords from nine dating-related and demographic-focused subreddits.
 
@@ -62,14 +61,9 @@ Each row represents one submission. The principal text variables are title and s
 
 Several nuances should guide interpretation. RODD is a keyword-filtered, self-selected sample rather than a representative sample of online daters. Advice-seeking and negative experiences—particularly dating fatigue—are overrepresented. Reddit’s anonymity prevents reliable identification of authors’ demographic characteristics, and multiple posts may come from the same account. Some text and metadata fields are missing, while engagement measures reflect platform activity rather than the psychological meaning of a post. Consequently, findings should be interpreted as patterns in Reddit’s online-dating discourse, not as general attitudes held by all online daters.
 
-
 # Working through the data
 
-I first inspect general characteristics of the corpus, including the number of
-posts per year, their distribution across subreddits, and post length. I then
-use a dictionary-guided text analysis to examine how Macho- and Nice
-Guy-associated language appears in the corpus and which words distinguish the
-contexts in which the two prototypes are mentioned.
+I first inspect general characteristics of the corpus, including the number of posts per year, their distribution across subreddits, and post length. I then use a dictionary-guided text analysis to examine how Macho- and Nice Guy-associated language appears in the corpus and which words distinguish the contexts in which the two prototypes are mentioned.
 
 ## Preparing the data
 
@@ -103,7 +97,6 @@ corpus_summary <- RODD_analysis |>
 knitr::kable(corpus_summary, caption = "Overview of the RODD corpus")
 ```
 
-
 ## Posts over time
 
 ```{r posts-by-year, fig.width=9, fig.height=5}
@@ -125,13 +118,12 @@ ggplot(posts_by_year, aes(x = year, y = posts)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-The final year is incomplete because the dataset includes submissions only
-through September 2024. Counts therefore describe the composition of RODD, not
-the total volume of online-dating discussions on Reddit. However it seems that the number of discussion opens and successfully parsed in the dataset has increase substantially across the years.  
+The final year is incomplete because the dataset includes submissions only through September 2024. Counts therefore describe the composition of RODD, not the total volume of online-dating discussions on Reddit. However it seems that the number of discussion opens and successfully parsed in the dataset has increase substantially across the years.
 
 ## Distribution across subreddits
 
 Subreddits are the discussion type per se; they are topic-specific communities within Reddit. Their names begin with r/.
+
 ```{r posts-by-subreddit, fig.width=9, fig.height=6}
 posts_by_subreddit <- RODD_analysis |>
   mutate(subreddit = coalesce(subreddit, "Missing")) |>
@@ -195,13 +187,299 @@ RODD_analysis |>
   theme_minimal(base_size = 12)
 ```
 
+# Inferring author gender
+
+Gender is not a verified field in RODD. I therefore treat gender as an **inferred, account-level variable**, not as ground truth. The evidence is ordered from strongest to weakest:
+
+1.  an explicit first-person description, such as *I (25F)* or *I am a man*;
+2.  an age--gender tag at the opening of a post, such as *\[25M\]*;
+3.  *my boyfriend* or *my girlfriend* under an explicitly heterosexual and binary assumption; and
+4.  a large imbalance between masculine and feminine third-person pronouns.
+
+The last two rules identify the people an author discusses rather than the author directly. They can misclassify gay, lesbian, bisexual, non-binary, and transgender authors, as well as posts about friends, relatives, or hypothetical people. They are retained only as low-confidence sensitivity measures. The primary gender comparison should use explicit first-person evidence only.
+
+## Extracting post-level evidence
+
+```{r gender-patterns}
+# Explicit first-person age/gender tags:
+#For Example: 
+# I (25M), I [25F], I (M), I am 25, F
+self_tag_male <- regex(
+  "\\b(?:i|i'm|i am)\\s*[,;:]?\\s*[\\(\\[]\\s*(?:[0-9]{1,2}\\s*[,/]?\\s*)?m\\b\\s*[\\)\\]]|\\b(?:i|i'm|i am)\\s*[,;:]?\\s*[0-9]{1,2}\\s*[,/]?\\s*m\\b",
+  ignore_case = TRUE
+)
+
+self_tag_female <- regex(
+  "\\b(?:i|i'm|i am)\\s*[,;:]?\\s*[\\(\\[]\\s*(?:[0-9]{1,2}\\s*[,/]?\\s*)?f\\b\\s*[\\)\\]]|\\b(?:i|i'm|i am)\\s*[,;:]?\\s*[0-9]{1,2}\\s*[,/]?\\s*f\\b",
+  ignore_case = TRUE
+)
+
+# Explicit identity statements: I am male, I'm a woman, I am a 25-year-old man
+self_word_male <- regex(
+  "\\b(?:i am|i'm)\\s+(?:a\\s+)?(?:[0-9]{1,2}(?:[- ]year[- ]old)?\\s+)?(?:male|man)\\b",
+  ignore_case = TRUE
+)
+
+self_word_female <- regex(
+  "\\b(?:i am|i'm)\\s+(?:a\\s+)?(?:[0-9]{1,2}(?:[- ]year[- ]old)?\\s+)?(?:female|woman)\\b",
+  ignore_case = TRUE
+)
+
+# A tag at the beginning of a title/post is plausible self-identification, but
+# it is weaker than a tag grammatically connected to "I".
+opening_tag_male <- regex(
+  "^\\s*[\\(\\[]?\\s*[0-9]{1,2}\\s*[,/]?\\s*m\\b\\s*[\\)\\]]?",
+  ignore_case = TRUE
+)
+
+opening_tag_female <- regex(
+  "^\\s*[\\(\\[]?\\s*[0-9]{1,2}\\s*[,/]?\\s*f\\b\\s*[\\)\\]]?",
+  ignore_case = TRUE
+)
+
+gender_evidence_posts <- RODD_analysis |>
+  select(
+    id,
+    author,
+    post_text,
+    post_words,
+    year,
+    title
+  ) |> 
+  mutate(
+    normalized_text = post_text |>
+      str_replace_all("[’‘]", "'") |>
+      str_to_lower(),
+
+    explicit_male = str_detect(normalized_text, self_tag_male) |
+      str_detect(normalized_text, self_word_male),
+    explicit_female = str_detect(normalized_text, self_tag_female) |
+      str_detect(normalized_text, self_word_female),
+
+    opening_male = !explicit_male & !explicit_female &
+      str_detect(normalized_text, opening_tag_male),
+    opening_female = !explicit_male & !explicit_female &
+      str_detect(normalized_text, opening_tag_female),
+
+    mentions_my_boyfriend = str_detect( # Mentioning girlfriend or boyfriend is not a direct self-description, but it is suggestive under the heterosexual assumption.
+      normalized_text,
+      regex("\\bmy\\s+(?:current\\s+|ex[- ]?)?boyfriend\\b")
+    ),
+    mentions_my_girlfriend = str_detect(
+      normalized_text,
+      regex("\\bmy\\s+(?:current\\s+|ex[- ]?)?girlfriend\\b")
+    ),
+
+    masculine_pronouns = str_count( # Talking about him or he is suggestive under the heterosexual assumption.
+      normalized_text,
+      regex("\\b(?:he|him|his)\\b")
+    ),
+    feminine_pronouns = str_count(
+      normalized_text,
+      regex("\\b(?:she|her|hers)\\b")
+    )
+  )
+```
+
+The expressions are deliberately conservative. For example, an arbitrary `(25F)` anywhere in a post is not counted as the author's gender because it may refer to a partner. The stronger rule requires the tag to be connected to *I*; the opening-tag rule is stored separately at a lower confidence level.
+
+### Accumulate Account-level evidance
+
+Author gender was inferred at the account level by combining evidence across all posts associated with the same author label. The classification followed an ordered hierarchy in which stronger evidence took precedence over weaker evidence. Explicit first-person self-descriptions received the highest grade, followed by age–gender tags appearing at the beginning of a post. References to a boyfriend or girlfriend received a lower grade because they require a binary, heterosexual-partner assumption. Third-person pronoun imbalance received the lowest grade because it indicates who is being discussed rather than directly identifying the author.
+
+Accounts containing contradictory evidence were marked as `Conflicting` or `Ambiguous` rather than assigned a majority label. The evidence grade represents the relative strength of the textual evidence and should not be interpreted as the probability that the inferred label is correct. The number of posts supporting the selected classification was retained separately as an indicator of consistency across an account’s posts.
+
+| Evidence grade | Confidence | Evidence source | Classification rule | Main limitation |
+|--------------:|---------------|---------------|---------------|---------------|
+| 4 | High | Explicit first-person self-description | Expressions such as `I (25M)`, `I [30F]`, or `I am a woman/man` determine the account label. Contradictory explicit descriptions are marked as `Conflicting`. | A pattern might occasionally match quoted text or a description of another person. |
+| 3 | Moderate | Opening age–gender tag | A tag such as `[25M]` or `(30F)` at the beginning of a post determines the label when no explicit first-person description is available. | The opening tag is likely, but not guaranteed, to describe the author. |
+| 2 | Low | Partner-reference term | `My girlfriend` produces a male-coded label and `my boyfriend` produces a female-coded label when no stronger evidence exists. Accounts containing both terms are marked as `Ambiguous`. | This rule assumes a binary, heterosexual relationship and may misclassify LGBTQ+ authors. |
+| 1 | Very low | Third-person pronoun imbalance | A label is assigned only when an account contains at least five gendered pronouns and at least 80% belong to one category. Feminine pronouns produce a male-coded label, while masculine pronouns produce a female-coded label. | Pronouns identify people discussed in the posts, not necessarily the author’s partner or the author’s gender. |
+| 0 | None or conflicting | Insufficient or contradictory evidence | Accounts without qualifying evidence remain `Unknown`; accounts with incompatible higher-level evidence remain `Conflicting`. | No defensible binary label can be assigned from the available text. |
+
+The classification is hierarchical: once an account satisfies a stronger rule, weaker evidence is ignored. For example, an explicit female self-description is not overridden by frequent use of feminine pronouns or by a reference to a girlfriend. Substantive gender comparisons should therefore primarily use high-confidence classifications, while moderate- and lower-confidence classifications should be included only in sensitivity analyses.
+
+```{r account-gender-inference}
+account_gender_evidence <- gender_evidence_posts |>
+  filter(
+    !is.na(author),
+    author != ""  ) |>
+  group_by(author) |>
+  summarise(
+    number_of_posts = n(),
+    explicit_male_posts = sum(explicit_male),
+    explicit_female_posts = sum(explicit_female),
+    opening_male_posts = sum(opening_male),
+    opening_female_posts = sum(opening_female),
+    boyfriend_posts = sum(mentions_my_boyfriend),
+    girlfriend_posts = sum(mentions_my_girlfriend),
+    masculine_pronouns = sum(masculine_pronouns),
+    feminine_pronouns = sum(feminine_pronouns),
+    .groups = "drop"
+  ) |>
+  mutate(
+    # does the post contains "i'm [age_gender]" of both genders? 
+    explicit_conflict = explicit_male_posts > 0 & explicit_female_posts > 0,
+    
+    # does the post not contains "i'm [age_gender]", but has "[age_gender]" in opening title? 
+
+    opening_conflict = explicit_male_posts == 0 &
+      explicit_female_posts == 0 &
+      opening_male_posts > 0 & opening_female_posts > 0,
+    
+        # does the post include both "my boyfriend" and "my girlfriends" 
+    partner_conflict = explicit_male_posts == 0 &
+      explicit_female_posts == 0 &
+      opening_male_posts == 0 & opening_female_posts == 0 &
+      boyfriend_posts > 0 & girlfriend_posts > 0,
+
+    # "He/him" points toward assumed-female only under the user's opposite-
+    # gender-partner assumption; "she/her" analogously points toward
+    # assumed-male. Require at least five pronouns and an 80% imbalance.
+    pronoun_total = masculine_pronouns + feminine_pronouns,
+    masculine_pronoun_share = if_else(
+      pronoun_total > 0,
+      masculine_pronouns / pronoun_total,
+      NA_real_
+    ),
+    feminine_pronoun_share = if_else(
+      pronoun_total > 0,
+      feminine_pronouns / pronoun_total,
+      NA_real_
+    ),
+
+    inferred_author_gender = case_when(
+      explicit_conflict ~ "Conflicting",
+      explicit_male_posts > 0 ~ "Male-coded",
+      explicit_female_posts > 0 ~ "Female-coded",
+      opening_conflict ~ "Conflicting",
+      opening_male_posts > 0 ~ "Male-coded",
+      opening_female_posts > 0 ~ "Female-coded",
+      partner_conflict ~ "Ambiguous",
+      girlfriend_posts > 0 ~ "Male-coded",
+      boyfriend_posts > 0 ~ "Female-coded",
+      pronoun_total >= 5 & feminine_pronoun_share >= 0.80 ~ "Male-coded",
+      pronoun_total >= 5 & masculine_pronoun_share >= 0.80 ~ "Female-coded",
+      TRUE ~ "Unknown"
+    ),
+
+    inference_source = case_when(
+      explicit_conflict ~ "Conflicting explicit self-descriptions",
+      explicit_male_posts > 0 | explicit_female_posts > 0 ~
+        "Explicit first-person self-description",
+      opening_conflict ~ "Conflicting opening tags",
+      opening_male_posts > 0 | opening_female_posts > 0 ~
+        "Opening age-gender tag",
+      partner_conflict ~ "Conflicting partner terms",
+      girlfriend_posts > 0 | boyfriend_posts > 0 ~
+        "Partner term; heterosexual assumption",
+      pronoun_total >= 5 &
+        (feminine_pronoun_share >= 0.80 | masculine_pronoun_share >= 0.80) ~
+        "Third-person pronoun imbalance",
+      TRUE ~ "Insufficient evidence"
+    ),
+
+    inference_confidence = case_when(
+      explicit_conflict | opening_conflict ~ "Conflicting",
+      explicit_male_posts > 0 | explicit_female_posts > 0 ~ "High",
+      opening_male_posts > 0 | opening_female_posts > 0 ~ "Moderate",
+      partner_conflict ~ "Conflicting",
+      girlfriend_posts > 0 | boyfriend_posts > 0 ~ "Low",
+      pronoun_total >= 5 &
+        (feminine_pronoun_share >= 0.80 | masculine_pronoun_share >= 0.80) ~
+        "Very low",
+      TRUE ~ "None"
+    ),
+
+    # This is an ordinal evidence grade, not a probability of being correct.
+    evidence_grade = case_when(
+      inference_confidence == "High" ~ 4L,
+      inference_confidence == "Moderate" ~ 3L,
+      inference_confidence == "Low" ~ 2L,
+      inference_confidence == "Very low" ~ 1L,
+      TRUE ~ 0L
+    ),
+
+    supporting_posts = case_when(
+      inference_confidence == "High" ~
+        pmax(explicit_male_posts, explicit_female_posts),
+      inference_confidence == "Moderate" ~
+        pmax(opening_male_posts, opening_female_posts),
+      inference_confidence == "Low" ~
+        pmax(girlfriend_posts, boyfriend_posts),
+      TRUE ~ 0L
+    )
+  )
+
+gender_inference_summary <- account_gender_evidence |>
+  count(
+    inferred_author_gender,
+    inference_confidence,
+    inference_source,
+    name = "accounts"
+  ) |>
+  group_by(inferred_author_gender) |>
+  mutate(percent_within_label = 100 * accounts / sum(accounts)) |>
+  ungroup() |>
+  arrange(desc(accounts))
+
+knitr::kable(
+  gender_inference_summary |>
+    mutate(percent_within_label = round(percent_within_label, 1)),
+  col.names = c("Inferred label", "Confidence", "Evidence source",
+                "Accounts", "Percent within label"),
+  caption = "Account-level inferred-gender evidence"
+)
+```
+
+When the same account supplies incompatible explicit labels across posts, it is marked `Conflicting` rather than assigned the majority label. Such conflicts may reflect quoted or relational descriptions, shared accounts, changes in identity, or extraction errors. They should be inspected only in aggregate unless an ethically justified validation protocol is established.
+
+```{r attach-account-gender}
+# Attach the account-level inference to each post. Deleted accounts remain
+# unlabelled because they were excluded from account aggregation.
+RODD_gendered <- RODD_analysis |>
+  left_join(
+    account_gender_evidence |>
+      select(
+        author,
+        inferred_author_gender,
+        inference_confidence,
+        inference_source,
+        evidence_grade,
+        supporting_posts
+      ),
+    by = "author"
+  ) |>
+  mutate(
+    inferred_author_gender = coalesce(inferred_author_gender, "Unknown"),
+    inference_confidence = coalesce(inference_confidence, "None"),
+    inference_source = coalesce(inference_source, "Insufficient evidence"),
+    evidence_grade = coalesce(evidence_grade, 0L),
+    supporting_posts = coalesce(supporting_posts, 0L)
+  )
+
+# Recommended primary analytic sample: direct first-person self-description.
+RODD_gender_primary <- RODD_gendered |>
+  filter(
+    inference_confidence == "High",
+    inferred_author_gender %in% c("Male-coded", "Female-coded")
+  )
+
+# Optional sensitivity sample that also includes opening age-gender tags.
+RODD_gender_sensitivity <- RODD_gendered |>
+  filter(
+    inference_confidence %in% c("High", "Moderate"),
+    inferred_author_gender %in% c("Male-coded", "Female-coded")
+  )
+```
+
+The confidence labels and `evidence_grade` express the strength of the textual evidence; they are not calibrated probabilities. Before substantive analysis, the regular expressions should be validated on a manually coded random sample, with precision and recall reported separately for each evidence source.
+
+Because some accounts contribute multiple posts, post-level observations are not statistically independent. Gender comparisons should therefore aggregate to the account level or use uncertainty estimates clustered by `author`. If the labels are used in prediction, training and test sets must also be divided by account rather than by post. For time-specific prediction, deriving an account's label from later posts would introduce look-ahead leakage; the label should then be estimated only from information available up to the focal date.
+
 # Dictionary-guided exploration of the dichotomy
 
-This first text analysis is descriptive. The dictionaries operationalize the
-two theoretical prototypes; they do not provide ground-truth labels for the
-authors or posts. A post is called *associated* with one prototype when it
-contains more of that prototype's seed words than seed words from the other
-prototype.
+This first text analysis is descriptive. The dictionaries operationalize the two theoretical prototypes; they do not provide ground-truth labels for the authors or posts. A post is called *associated* with one prototype when it contains more of that prototype's seed words than seed words from the other prototype.
 
 ```{r prototype-dictionaries}
 nice_guy_words <- c(
@@ -277,12 +555,10 @@ knitr::kable(
 )
 ```
 
-Normalizing counts per 1,000 words reduces the mechanical tendency for longer
-posts to contain more dictionary matches. The difference between the two rates
-is used only as a continuous descriptive score.
+Normalizing counts per 1,000 words reduces the tendency for longer posts to contain more dictionary matches. The difference between the two rates is used only as a continuous descriptive score.
 
 ```{r prototype-over-time, fig.width=9, fig.height=5}
-prototype_by_year <- prototype_results |>
+prototype_by_year <- prototype_wordcount_results |>
   filter(!is.na(year)) |>
   group_by(year) |>
   summarise(
@@ -322,11 +598,3 @@ ggplot(
   theme_minimal(base_size = 12) +
   theme(legend.position = "top")
 ```
-
-# Assumed gender
-
-The author field is treated only as an account label.  later on I will try to assume its gender using some assumptions:
-- females tent to use more the words "he" and "him" in their posts, while males tend "to use more the words "she" and "her" in their posts.
-- also, "my boyfriend" and "my girlfriend" are strong indicators of gender respectively. 
-- a lot of posts are include the "custom" of when talking about self and include the age and gender in a paramthesis, squired or normal. For Example: " (25M) " or " [25F] " or " (M) " or " (25, F) ".  I will try to extract this information as well.
-
