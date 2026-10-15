@@ -281,7 +281,7 @@ gender_evidence_posts <- RODD_analysis |>
   )
 ```
 
-The expressions are deliberately conservative. For example, an arbitrary `(25F)` anywhere in a post is not counted as the author's gender because it may refer to a partner. The stronger rule requires the tag to be connected to *I*; the opening-tag rule is stored separately at a lower confidence level.
+The expressions are  conservative. For example, an arbitrary `(25F)` anywhere in a post is not counted as the author's gender because it may refer to a partner. The stronger rule requires the tag to be connected to *I*; the opening-tag rule is stored separately at a lower confidence level.
 
 ### Accumulate Account-level evidance
 
@@ -336,6 +336,8 @@ account_gender_evidence <- gender_evidence_posts |>
     # "He/him" points toward assumed-female only under the user's opposite-
     # gender-partner assumption; "she/her" analogously points toward
     # assumed-male. Require at least five pronouns and an 80% imbalance.
+    
+    
     pronoun_total = masculine_pronouns + feminine_pronouns,
     masculine_pronoun_share = if_else(
       pronoun_total > 0,
